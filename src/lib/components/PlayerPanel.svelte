@@ -24,7 +24,7 @@
   });
 </script>
 
-<div class="player-layout">
+<div class="player-layout" class:player-dead={!view.player.alive}>
   <p class="eyebrow">VOCÊ FAZ PARTE DA CIDADE</p>
   <h1>Olá, {view.player.name}<span class="accent">.</span></h1>
   {#if view.status === "waiting"}<section class="panel waiting-screen">
@@ -36,10 +36,6 @@
       </div>
     </section>
   {:else}
-    {#if view.player.role}<RoleCard
-        role={view.player.role}
-        partners={view.partners}
-      />{/if}
     {#if !view.player.alive}<div class="notice">
         Você está morto. Continue acompanhando a partida; suas ações noturnas
         estão encerradas.
@@ -112,5 +108,6 @@
             : "não é Assassino."}</strong
         >
       </div>{/if}
+    {#if view.player.role}<RoleCard role={view.player.role} partners={view.partners} alive={view.player.alive} />{/if}
   {/if}
 </div>

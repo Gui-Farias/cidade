@@ -664,6 +664,9 @@ main {
   background: linear-gradient(125deg, var(--accent-soft), var(--surface));
   box-shadow: var(--shadow);
 }
+.role-card.role-dead { opacity: .62; filter: saturate(.55); }
+.role-card.role-dead .role-symbol { color: var(--assassin); border-color: color-mix(in srgb, var(--assassin) 30%, var(--line)); }
+.player-dead > .notice:first-of-type { border-color: color-mix(in srgb, var(--assassin) 38%, var(--line)); background: color-mix(in srgb, var(--assassin) 8%, var(--surface)); color: var(--assassin); }
 .role-card::before {
   content: "";
   position: absolute;
