@@ -1,0 +1,287 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { WebSocket } from "ws";
+import { Game } from "../server/websocket/game-state.js";
+import { attachGameServer } from "../server/websocket/game-server.js";
+import type {
+  ServerMessage,
+  View,
+  AdminView,
+  PlayerView,
+} from "../src/lib/game/types.js";
+
+test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", async () => {
+  const server = createServer();
+  let now = Date.now();
+  const game = new Game(() => now);
+  const { wss } = attachGameServer(server, game);
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert(address && typeof address !== "string");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const clients: WebSocket[] = [];
+  async function client(tokens = {}) {
+    const ws = new WebSocket(origin.replace("http", "ws") + "/ws", { origin });
+    clients.push(ws);
+    const messages: ServerMessage[] = [];
+    let view: View | undefined;
+    ws.on("message", (raw) => {
+      const m = JSON.parse(raw.toString());
+      messages.push(m);
+      if (m.type === "state") view = m.view;
+    });
+    await once(ws, "open");
+    function send(m: object) {
+      ws.send(JSON.stringify(m));
+    }
+    async function wait(predicate: () => boolean) {
+      const end = Date.now() + 3000;
+      while (!predicate()) {
+        if (Date.now() > end) throw new Error("Timeout aguardando atualização");
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    }
+    send({ type: "hello", ...tokens });
+    await wait(() => !!view);
+    return {
+      ws,
+      messages,
+      send,
+      wait,
+      get view() {
+        return view!;
+      },
+      get token() {
+        const m = messages.find((m) => m.type === "identity");
+        return m?.type === "identity" ? m.token : undefined;
+      },
+    };
+  }
+  try {
+    const admin = await client();
+    assert.equal(admin.view.kind, "admin");
+    const adminToken = admin.token!;
+    const people: Awaited<ReturnType<typeof client>>[] = [];
+    for (let i = 0; i < 9; i++) {
+      const p = await client();
+      assert.equal(p.view.kind, "guest");
+      p.send({ type: "join", name: `Pessoa ${i}` });
+      await p.wait(() => p.view.kind === "player");
+      people.push(p);
+    }
+    await admin.wait(() => (admin.view as AdminView).players.length === 9);
+    admin.send({ type: "draw" });
+    await admin.wait(() => (admin.view as AdminView).status === "night");
+    for (const p of people)
+      await p.wait(() => !!(p.view as PlayerView).player.role);
+    const roster = (admin.view as AdminView).players;
+    assert.equal(roster.filter((p) => p.role === "assassin").length, 2);
+    assert.equal(roster.filter((p) => p.role === "doctor").length, 1);
+    assert.equal(roster.filter((p) => p.role === "detective").length, 1);
+    assert.equal(roster.filter((p) => p.role === "citizen").length, 5);
+    const byRole = (role: string) =>
+      people.filter((p) => (p.view as PlayerView).player.role === role);
+    const [a1, a2] = byRole("assassin");
+    const [doctor] = byRole("doctor");
+    const [detective] = byRole("detective");
+    const [citizen] = byRole("citizen");
+    const id = (p: typeof citizen) => (p.view as PlayerView).player.id;
+    async function finishDay(adminClient: typeof admin) {
+      assert.equal((adminClient.view as AdminView).day!.remaining, 60);
+      now += 60_000;
+      const living = people.filter((p) => (p.view as PlayerView).player.alive);
+      for (const p of living) p.send({ type: "day-choice", choice: "vote" });
+      await adminClient.wait(
+        () => (adminClient.view as AdminView).day?.phase === "voting",
+      );
+      const victim = living.find(
+        (p) =>
+          p !== citizen && (p.view as PlayerView).player.role === "citizen",
+      )!;
+      for (const p of living)
+        p.send({ type: "day-vote", targetId: id(victim) });
+      await adminClient.wait(
+        () => (adminClient.view as AdminView).status === "night",
+      );
+      assert.equal((adminClient.view as AdminView).day!.eliminated, id(victim));
+    }
+
+    for (const p of people) {
+      assert(!("players" in p.view));
+      assert(!JSON.stringify(p.view).includes(adminToken));
+      assert(!("token" in (p.view as PlayerView).player));
+    }
+    const guest = await client();
+    assert.deepEqual(guest.view, { kind: "guest", closed: true });
+    guest.send({ type: "join", name: "Tarde" });
+    await guest.wait(() => guest.messages.some((m) => m.type === "error"));
+    citizen.send({ type: "draw" });
+    citizen.send({ type: "turn", turn: "assassins" });
+    citizen.send({ type: "getRole", targetId: id(a1) });
+    await citizen.wait(
+      () => citizen.messages.filter((m) => m.type === "error").length === 3,
+    );
+    await a1.wait(() => !!(a1.view as PlayerView).action);
+    assert.equal((citizen.view as PlayerView).action, null);
+    assert(
+      !(a1.view as PlayerView).action!.targets.some(
+        (t) => t.id === id(a1) || t.id === id(a2),
+      ),
+    );
+    citizen.send({ type: "act", targetId: id(doctor) });
+    await citizen.wait(
+      () => citizen.messages.filter((m) => m.type === "error").length === 4,
+    );
+    assert.deepEqual((a1.view as PlayerView).partners, [
+      { id: id(a2), name: (a2.view as PlayerView).player.name },
+    ]);
+    assert.deepEqual((citizen.view as PlayerView).partners, []);
+    assert((doctor.view as PlayerView).action);
+    assert((detective.view as PlayerView).action);
+    assert.equal((admin.view as AdminView).pendingPlayers.length, 4);
+    assert.equal((admin.view as AdminView).canWake, false);
+    admin.send({ type: "wake" });
+    await admin.wait(() => admin.messages.some((m) => m.type === "error"));
+    const privateView = JSON.stringify(a2.view);
+    a1.send({ type: "act", targetId: id(citizen) });
+    await admin.wait(() => !!(admin.view as AdminView).assassinTarget);
+    assert.equal(JSON.stringify(a2.view), privateView);
+    assert((a2.view as PlayerView).action);
+    a1.send({ type: "act", targetId: id(doctor) });
+    await a1.wait(() => a1.messages.some((m) => m.type === "error"));
+    const confirmedView = JSON.stringify(a1.view);
+    a2.send({ type: "act", targetId: id(doctor) });
+    await admin.wait(() => (admin.view as AdminView).assassinConflict);
+    assert.equal(JSON.stringify(a1.view), confirmedView);
+    assert.equal(
+      (admin.view as AdminView).assassinVotes.filter((v) => v.targetId).length,
+      2,
+    );
+    a2.send({ type: "resolve-assassins", targetId: id(doctor) });
+    await a2.wait(() => a2.messages.some((m) => m.type === "error"));
+    admin.send({ type: "wake" });
+    await admin.wait(() => admin.messages.some((m) => m.type === "error"));
+    assert.equal((admin.view as AdminView).status, "night");
+    admin.send({ type: "resolve-assassins", targetId: id(citizen) });
+    await admin.wait(
+      () => (admin.view as AdminView).assassinTarget === id(citizen),
+    );
+    await doctor.wait(() => !!(doctor.view as PlayerView).action);
+    assert(
+      (doctor.view as PlayerView).action!.targets.some(
+        (t) => t.id === id(doctor),
+      ),
+    );
+    doctor.send({ type: "act", targetId: id(citizen) });
+    await admin.wait(() => !!(admin.view as AdminView).doctorTarget);
+    await detective.wait(() => !!(detective.view as PlayerView).action);
+    assert(
+      !(detective.view as PlayerView).action!.targets.some(
+        (t) => t.id === id(detective),
+      ),
+    );
+    detective.send({ type: "act", targetId: id(a1) });
+    await detective.wait(() => !!(detective.view as PlayerView).investigation);
+    assert.equal((detective.view as PlayerView).investigation!.assassin, true);
+    for (const p of people.filter((p) => p !== detective))
+      assert.equal((p.view as PlayerView).investigation, null);
+    await admin.wait(() => (admin.view as AdminView).canWake);
+    admin.send({ type: "wake" });
+    await admin.wait(() => (admin.view as AdminView).status === "day");
+    assert.equal(
+      (admin.view as AdminView).outcome,
+      "Ninguém morreu durante a noite.",
+    );
+    for (const p of people) {
+      await p.wait(() => (p.view as PlayerView).status === "day");
+      assert.equal((p.view as PlayerView).action, null);
+      assert.equal((p.view as PlayerView).investigation, null);
+    }
+    admin.ws.close();
+    await once(admin.ws, "close");
+    const reAdmin = await client({ adminToken });
+    assert.equal(reAdmin.view.kind, "admin");
+    await finishDay(reAdmin);
+    await a1.wait(() => !!(a1.view as PlayerView).action);
+    a1.send({ type: "act", targetId: id(doctor) });
+    await reAdmin.wait(
+      () => (reAdmin.view as AdminView).assassinTarget === id(doctor),
+    );
+    a2.send({ type: "act", targetId: id(doctor) });
+    doctor.send({ type: "act", targetId: id(citizen) });
+    await detective.wait(() => !!(detective.view as PlayerView).action);
+    detective.send({ type: "act", targetId: id(citizen) });
+    await detective.wait(() => !!(detective.view as PlayerView).investigation);
+    assert.equal((detective.view as PlayerView).investigation!.assassin, false);
+    reAdmin.send({ type: "wake" });
+    await doctor.wait(() => !(doctor.view as PlayerView).player.alive);
+    for (const p of people)
+      await p.wait(() => (p.view as PlayerView).status === "day");
+    const doctorId = id(doctor);
+    const doctorToken = doctor.token!;
+    doctor.ws.close();
+    await once(doctor.ws, "close");
+    await reAdmin.wait(
+      () =>
+        !(reAdmin.view as AdminView).players.find((p) => p.id === doctorId)!
+          .connected,
+    );
+    const reDoctor = await client({ playerToken: doctorToken });
+    assert.equal((reDoctor.view as PlayerView).player.id, doctorId);
+    assert.equal((reDoctor.view as PlayerView).player.alive, false);
+    assert.equal((reDoctor.view as PlayerView).player.role, "doctor");
+    assert.equal((reAdmin.view as AdminView).players.length, 9);
+    await finishDay(reAdmin);
+    await reAdmin.wait(() => (reAdmin.view as AdminView).status === "night");
+    assert.equal((reAdmin.view as AdminView).pendingPlayers.length, 3);
+    reDoctor.send({ type: "act", targetId: id(citizen) });
+    await reDoctor.wait(() =>
+      reDoctor.messages.some((m) => m.type === "error"),
+    );
+    assert.equal((reDoctor.view as PlayerView).action, null);
+  } finally {
+    for (const ws of clients) ws.terminate();
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("Votos iguais, reconexão de estado e nova noite", async () => {
+  const { Game } = await import("../server/websocket/game-state.js");
+  let now = Date.now();
+  const game = new Game(() => now);
+  const players = ["A", "B", "C", "D"].map((name) => game.join(name));
+  game.draw();
+  const assassins = players.filter((p) => p.role === "assassin");
+  const target = players.find((p) => p.role === "doctor")!;
+  assert.equal(game.pendingPlayers().length, 4);
+  game.act(assassins[0], target.id);
+  assert.equal(game.playerView(assassins[0]).submitted, true);
+  assert.equal(game.playerView(assassins[1]).submitted, false);
+  assert.throws(() => game.act(assassins[0], target.id));
+  game.act(assassins[1], target.id);
+  assert.equal(game.assassinConflict(), false);
+  assert.equal(game.assassinTarget, target.id);
+  assert.throws(() => game.wake(), /Aguarde todos/);
+  const detective = players.find((p) => p.role === "detective")!;
+  target.connected = false;
+  assert(game.pendingPlayers().includes(target));
+  game.act(detective, assassins[0].id);
+  assert.throws(() => game.wake(), /Aguarde todos/);
+  game.act(target, detective.id);
+  assert.equal(game.adminView().canWake, true);
+  game.wake();
+  assert.equal(target.alive, false);
+  now += 60_000;
+  game.tick();
+  for (const p of players.filter((p) => p.alive)) game.dayChoice(p, "vote");
+  for (const p of players.filter((p) => p.alive))
+    game.dayVote(p, assassins[0].id);
+  assert.equal(game.assassinVotes.size, 0);
+  assert.equal(game.assassinTarget, null);
+  assert.equal(game.playerView(assassins[0]).action, null);
+  assert(game.playerView(assassins[1]).action);
+});
