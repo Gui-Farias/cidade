@@ -203,10 +203,6 @@ header {
 .brand {
   display: flex;
   align-items: center;
-  gap: 13px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 2px;
 }
 .brand-icon {
   width: 38px;
@@ -623,8 +619,20 @@ main {
   font-size: 24px;
 }
 .player-layout {
-  max-width: 640px;
+  max-width: 680px;
   margin: 0 auto;
+}
+.player-layout > .role-card {
+  margin-bottom: 30px;
+  padding: 42px 34px;
+}
+.player-layout > .role-card .role-symbol {
+  width: 76px;
+  height: 76px;
+  font-size: 40px;
+}
+.player-layout > .role-card h2 {
+  font-size: clamp(28px, 5vw, 36px);
 }
 .player-layout > h1 {
   margin-bottom: 26px;
@@ -896,9 +904,7 @@ footer span:last-child {
     border-radius: 16px;
   }
   .brand {
-    font-size: 10px;
-    letter-spacing: 1.3px;
-    gap: 9px;
+    gap: 0;
   }
   .brand-icon {
     width: 32px;

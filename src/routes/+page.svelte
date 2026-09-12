@@ -49,12 +49,7 @@
   <div class="shell">
     <header>
       <a class="brand" href="/" aria-label="Cidade Dorme, início"
-        ><span class="brand-icon" aria-hidden="true">☾</span>CIDADE DORME</a
-      ><span class="connection"
-        ><i class:online={connected}></i>{connected
-          ? "Conectado"
-          : "Conectando…"}</span
-      >
+        ><span class="brand-icon" aria-hidden="true">☾</span></a>
     </header>
     <div class="atmosphere">
       <div class="atmosphere-copy">
