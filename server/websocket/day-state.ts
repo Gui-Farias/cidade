@@ -1,17 +1,19 @@
 import type { DayPhase, DayChoice, Target } from "../../src/lib/game/types.js";
+import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
 
 export class DayState {
   phase: DayPhase = "discussion";
   deadline: number;
-  duration = 60;
+  duration = 80;
+  extensions = 0;
   decisions = new Map<string, DayChoice>();
-  votes = new Map<string, string>();
+  votes = new Map<string, string | null>();
   eliminated: string | null = null;
   constructor(
     public voters: Target[],
     now: number,
   ) {
-    this.deadline = now + 60_000;
+    this.deadline = now + 80_000;
   }
   remaining(now: number) {
     return this.phase === "discussion"
@@ -20,7 +22,7 @@ export class DayState {
   }
   tick(now: number) {
     if (this.phase !== "discussion" || now < this.deadline) return false;
-    this.phase = "decision";
+    this.phase = this.extensions >= MAX_DAY_EXTENSIONS ? "voting" : "decision";
     return true;
   }
   choose(id: string, choice: unknown, now: number) {
@@ -29,12 +31,15 @@ export class DayState {
       throw new Error("Você já confirmou sua escolha.");
     if (choice !== "extend" && choice !== "vote")
       throw new Error("Escolha inválida.");
+    if (choice === "extend" && this.extensions >= MAX_DAY_EXTENSIONS)
+      throw new Error("As duas prorrogações já foram utilizadas.");
     this.decisions.set(id, choice);
     if (this.decisions.size === this.voters.length) {
       const extensions = [...this.decisions.values()].filter(
         (v) => v === "extend",
       ).length;
       if (extensions > this.voters.length / 2) {
+        this.extensions++;
         this.phase = "discussion";
         this.duration = 30;
         this.deadline = now + 30_000;
@@ -45,13 +50,16 @@ export class DayState {
   vote(id: string, target: unknown) {
     this.validate(id, "voting");
     if (this.votes.has(id)) throw new Error("Seu voto já foi confirmado.");
-    if (typeof target !== "string" || !this.voters.some((p) => p.id === target))
+    if (
+      target !== null &&
+      (typeof target !== "string" || !this.voters.some((p) => p.id === target))
+    )
       throw new Error("Escolha um jogador vivo.");
     this.votes.set(id, target);
     if (this.votes.size === this.voters.length) {
       const leaders = this.leaders();
-      if (leaders.length === 1) {
-        this.eliminated = leaders[0];
+      if (leaders.length <= 1) {
+        this.eliminated = leaders[0] ?? null;
         this.phase = "completed";
       } else this.phase = "tie";
     }
@@ -69,7 +77,7 @@ export class DayState {
   tally() {
     const counts = new Map<string, number>();
     for (const target of this.votes.values())
-      counts.set(target, (counts.get(target) || 0) + 1);
+      if (target !== null) counts.set(target, (counts.get(target) || 0) + 1);
     return [...counts]
       .map(([id, count]) => ({ id, count }))
       .sort((a, b) => b.count - a.count);

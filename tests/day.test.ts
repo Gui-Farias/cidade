@@ -4,23 +4,23 @@ import { DayState } from "../server/websocket/day-state.js";
 import { Game } from "../server/websocket/game-state.js";
 const voters = ["a", "b", "c", "d"].map((id) => ({ id, name: id }));
 
-test("60s, escolha majoritária, prorrogação de 30s e voto único", () => {
+test("80s, escolha majoritária, prorrogação de 30s e voto único", () => {
   const day = new DayState(voters, 1000);
-  assert.equal(day.remaining(1000), 60);
-  assert.equal(day.tick(60_999), false);
+  assert.equal(day.remaining(1000), 80);
+  assert.equal(day.tick(80_999), false);
   assert.throws(() => day.choose("a", "extend", 1000));
-  assert.equal(day.tick(61_000), true);
-  assert.throws(() => day.choose("invasor", "vote", 61_000));
-  for (const id of ["a", "b", "c"]) day.choose(id, "extend", 61_000);
-  assert.throws(() => day.choose("a", "vote", 61_000));
-  day.choose("d", "vote", 61_000);
+  assert.equal(day.tick(81_000), true);
+  assert.throws(() => day.choose("invasor", "vote", 81_000));
+  for (const id of ["a", "b", "c"]) day.choose(id, "extend", 81_000);
+  assert.throws(() => day.choose("a", "vote", 81_000));
+  day.choose("d", "vote", 81_000);
   assert.equal(day.phase, "discussion");
-  assert.equal(day.remaining(61_000), 30);
-  day.tick(91_000);
-  day.choose("a", "extend", 91_000);
-  day.choose("b", "extend", 91_000);
-  day.choose("c", "vote", 91_000);
-  day.choose("d", "vote", 91_000);
+  assert.equal(day.remaining(81_000), 30);
+  day.tick(111_000);
+  day.choose("a", "extend", 111_000);
+  day.choose("b", "extend", 111_000);
+  day.choose("c", "vote", 111_000);
+  day.choose("d", "vote", 111_000);
   assert.equal(day.phase, "voting");
   assert.throws(() => day.vote("a", "invalid"));
   day.vote("a", "a");
@@ -39,20 +39,25 @@ test("Sigilo, vivos/offline, eliminação automática e limpeza para outra noite
   const game = new Game(() => now);
   for (const name of ["a", "b", "c", "d", "e"]) game.join(name);
   game.draw();
-  const doctor = game.players.find((p) => p.role === "doctor")!;
+  game.players.forEach((p) => {
+    if (["sheriff", "bodyguard", "seer", "fool"].includes(p.role!))
+      p.role = "citizen";
+  });
+  const target = game.players.find((p) => p.role === "citizen")!;
   for (const p of game.players)
     if (game.eligible(p))
       game.act(
         p,
-        p.role === "detective"
+        p.role === "seer"
           ? game.players.find((t) => t.id !== p.id)!.id
-          : doctor.id,
+          : target.id,
       );
   game.wake();
-  const [a, b] = game.players;
-  assert.equal(game.playerView(a).day!.remaining, 60);
+  const a = game.players.find((p) => p.role === "citizen")!;
+  const b = game.players.find((p) => p !== a)!;
+  assert.equal(game.playerView(a).day!.remaining, 80);
   assert.throws(() => game.dayVote(a, b.id));
-  now = 60_000;
+  now = 80_000;
   game.tick();
   for (const p of game.players) game.dayChoice(p, "vote");
   const before = game.playerView(b);
@@ -68,11 +73,94 @@ test("Sigilo, vivos/offline, eliminação automática e limpeza para outra noite
   assert.equal(game.adminView().day!.eliminated, a.id);
   assert.equal(game.playerView(b).day, null);
   assert.equal(game.assassinVotes.size, 0);
+  assert.deepEqual(game.assassinTargets, []);
   assert.throws(() => game.dayVote(a, b.id));
 });
 
-test('Reset preserva o narrador e limpa jogadores', () => {
- const game = new Game(); game.join('Ana'); game.reset();
- assert.equal(game.status, 'waiting'); assert.equal(game.players.length, 0);
- assert.equal(game.adminView().players.length, 0);
+test("Reset preserva o narrador e limpa jogadores", () => {
+  const game = new Game();
+  game.adminToken = "narrador";
+  game.join("Ana");
+  game.reset();
+  assert.equal(game.status, "waiting");
+  assert.equal(game.players.length, 0);
+  assert.equal(game.adminView().players.length, 0);
+  assert.equal(game.adminToken, "narrador");
+});
+
+test("Duas prorrogações no máximo, depois votação automática e sem terceira decisão", () => {
+  const day = new DayState(voters, 0);
+  assert.equal(day.tick(79_999), false);
+  assert.equal(day.tick(80_000), true);
+  for (const p of voters) day.choose(p.id, "extend", 80_000);
+  assert.equal(day.extensions, 1);
+  assert.equal(day.remaining(80_000), 30);
+  assert.equal(day.tick(109_999), false);
+  day.tick(110_000);
+  for (const p of voters) day.choose(p.id, "extend", 110_000);
+  assert.equal(day.extensions, 2);
+  assert.equal(day.tick(139_999), false);
+  assert.equal(day.tick(140_000), true);
+  assert.equal(day.phase, "voting");
+  assert.throws(() => day.choose("a", "extend", 140_000));
+  for (const p of voters) day.vote(p.id, null);
+  assert.equal(day.phase, "completed");
+  assert.equal(day.eliminated, null);
+  assert.deepEqual(day.tally(), []);
+});
+
+test("Abstenção conta como confirmação única, não como candidato ou desempate", () => {
+  const day = new DayState(voters, 0);
+  day.tick(80_000);
+  for (const p of voters) day.choose(p.id, "vote", 80_000);
+  assert.throws(() => day.vote("invasor", null));
+  assert.throws(() => day.vote("a", undefined));
+  day.vote("a", null);
+  assert.throws(() => day.vote("a", "b"));
+  day.vote("b", null);
+  day.vote("c", null);
+  assert.equal(day.phase, "voting");
+  assert.equal(day.pending().length, 1);
+  day.vote("d", "a");
+  assert.equal(day.eliminated, "a");
+  assert.deepEqual(day.tally(), [{ id: "a", count: 1 }]);
+});
+
+test("Todos se abstêm: sem morte ou vitória, próxima noite e limite renovado no próximo dia", () => {
+  let now = 0;
+  const game = new Game(() => now);
+  for (let i = 0; i < 3; i++) game.join(`Pessoa ${i}`);
+  game.draw();
+  const assassin = game.players.find((p) => p.role === "assassin")!;
+  const doctor = game.players.find((p) => p.role === "doctor")!;
+  const sheriff = game.players.find((p) => p.role === "sheriff")!;
+  const night = () => {
+    game.act(assassin, sheriff.id);
+    game.act(doctor, sheriff.id);
+    game.pass(sheriff);
+    game.wake();
+  };
+  night();
+  now = 80_000;
+  game.tick();
+  for (let i = 0; i < 2; i++) {
+    for (const p of game.players) game.dayChoice(p, "extend");
+    now += 30_000;
+    game.tick();
+  }
+  assert.equal(game.playerView(doctor).day!.extensionsRemaining, 0);
+  const privateView = game.playerView(doctor);
+  game.dayVote(assassin, null);
+  assert.deepEqual(game.playerView(doctor), privateView);
+  assert.equal(game.playerView(assassin).day!.submitted, true);
+  game.dayVote(doctor, null);
+  game.dayVote(sheriff, null);
+  assert.equal(game.adminView().day!.abstentions, 3);
+  assert(game.players.every((p) => p.alive));
+  assert.equal(game.status, "night");
+  assert.equal(game.result, null);
+  assert(game.timeline.some((e) => e.text.includes("Ninguém foi eliminado")));
+  night();
+  assert.equal(game.playerView(doctor).day!.remaining, 80);
+  assert.equal(game.playerView(doctor).day!.extensionsRemaining, 2);
 });

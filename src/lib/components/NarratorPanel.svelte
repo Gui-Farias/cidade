@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { AdminView, ClientMessage } from "$lib/game/types";
   import DayPanel from "./DayPanel.svelte";
-  import { roles, MIN_PLAYERS } from "$lib/game/roles";
+  import { roles, MIN_PLAYERS, roleDeck } from "$lib/game/roles";
   let {
     view,
     send,
     connected,
   }: { view: AdminView; send: (m: ClientMessage) => void; connected: boolean } =
     $props();
+  const composition = $derived(roleDeck(view.players.length));
   const name = (id: string | null) =>
     view.players.find((p) => p.id === id)?.name;
 </script>
@@ -18,13 +19,27 @@
     <h1>Narrador<span class="accent">.</span></h1>
     <p>As vozes estão na chamada. Os segredos ficam aqui.</p>
   </div>
-  <span class="phase"
-    >{view.status === "waiting"
-      ? "○ Preparação"
-      : view.status === "night"
-        ? `☾ Noite ${view.night}`
-        : "☼ Cidade acordada"}</span
-  >
+  <div class="heading-actions">
+    <button
+      class="reset-room"
+      disabled={!connected}
+      onclick={() => {
+        if (
+          confirm(
+            "Resetar a sala? A partida e todos os jogadores serão removidos.",
+          )
+        )
+          send({ type: "reset" });
+      }}>↺ Resetar sala</button
+    >
+    <span class="phase"
+      >{view.status === "waiting"
+        ? "○ Preparação"
+        : view.status === "night"
+          ? `☾ Noite ${view.night}`
+          : "☼ Cidade acordada"}</span
+    >
+  </div>
 </div>
 <div class="dashboard">
   <section class="panel roster">
@@ -81,7 +96,6 @@
     </div>
   </section>
   <aside>
-    <button class="reset-room" disabled={!connected} onclick={() => { if (confirm("Resetar a sala? A partida e todos os jogadores serão removidos.")) send({ type: "reset" }); }}>↺ Resetar sala</button>
     {#if view.status === "waiting"}
       <section class="panel">
         <p class="eyebrow">ANTES DE COMEÇAR</p>
@@ -91,12 +105,21 @@
           papéis.
         </p>
         <div class="composition">
-          <span><b class="assassin">02</b> Assassinos</span><span
-            ><b class="doctor">01</b> Médico</span
-          ><span><b class="detective">01</b> Detetive</span><span
-            ><b>＋</b> Demais cidadãos</span
-          >
+          {#each Object.keys(roles) as (keyof typeof roles)[] as role}
+            <span
+              ><b class={role}
+                >{composition
+                  .filter((r) => r === role)
+                  .length.toString()
+                  .padStart(2, "0")}</b
+              >{roles[role].label}</span
+            >
+          {/each}
         </div>
+        {#if view.players.length > 0 && view.players.length < 3}<p class="hint">
+            Com 1 ou 2 jogadores, os assassinos vencem imediatamente. Reúna ao
+            menos 3 para disputar.
+          </p>{/if}
         <button
           class="primary full"
           disabled={!connected || view.players.length < MIN_PLAYERS}
@@ -144,8 +167,8 @@
             >☼ &nbsp; Cidade acorda</button
           >
           <p class="hint">
-            Só é possível continuar após todas as confirmações e resolver votos
-            divergentes.
+            Só é possível continuar após todas as confirmações. O Xerife pode
+            guardar a bala.
           </p>
         {/if}
       </section>
@@ -171,26 +194,20 @@
             >
           </p>
         {/each}
-        {#if view.assassinConflict}
-          <div class="notice">
-            Os votos foram diferentes. Escolha o alvo do ataque:
-            <div class="turns">
-              {#each [...new Set(view.assassinVotes
-                    .map((v) => v.targetId)
-                    .filter(Boolean))] as targetId}
-                <button
-                  disabled={!connected}
-                  onclick={() =>
-                    send({ type: "resolve-assassins", targetId: targetId! })}
-                  >{name(targetId)}</button
-                >
-              {/each}
-            </div>
-          </div>
-        {/if}
+        {#if view.assassinConflict && view.status === "night"}<div
+            class="notice"
+          >
+            Votos diferentes: o sorteio decidirá automaticamente entre os alvos
+            quando a cidade acordar (90% de chance de um ataque e 10% de dois,
+            com chances iguais entre os alvos).
+          </div>{/if}
         <p>
           Assassinos: <strong
-            >{name(view.assassinTarget) || "nenhuma escolha"}</strong
+            >{view.assassinTargets.length
+              ? view.assassinTargets.map(name).join(" e ")
+              : view.assassinConflict
+                ? "aguardando sorteio"
+                : name(view.assassinTarget) || "nenhuma escolha"}</strong
           >
         </p>
         <p>
@@ -201,10 +218,22 @@
           >
         </p>
         <p>
-          Detetive: <strong
-            >{view.detectiveTarget
-              ? `investigou ${name(view.detectiveTarget)}`
-              : "nenhuma investigação"}</strong
+          Guarda-costas: <strong
+            >{name(view.bodyguardTarget) || "nenhuma proteção"}</strong
+          >
+        </p>
+        <p>
+          Vidente: <strong>{name(view.seerTarget) || "nenhuma visão"}</strong>
+        </p>
+        <p>
+          Xerife: <strong
+            >{view.sheriffTarget
+              ? `atirou em ${name(view.sheriffTarget)}`
+              : view.sheriffSpent
+                ? "bala já utilizada"
+                : view.sheriffPassed
+                  ? "guardou a bala"
+                  : "aguardando escolha"}</strong
           >
         </p>
         {#if view.outcome}<div class="notice">{view.outcome}</div>{/if}

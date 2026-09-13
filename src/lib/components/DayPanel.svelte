@@ -26,7 +26,10 @@
     const current = phase;
     selected = "";
   });
-  const name = (id: string) => players.find((p) => p.id === id)?.name || id;
+  const name = (id: string | null) =>
+    id === null
+      ? "Não votou nesta rodada"
+      : players.find((p) => p.id === id)?.name || id;
 </script>
 
 <section class="panel day-panel">
@@ -50,15 +53,20 @@
       aria-label="Tempo restante de discussão"
     ></progress>
     <p class="hint">
-      Ao terminar, a cidade decide: mais 30 segundos ou votação.
+      {day.extensionsRemaining > 0
+        ? `São permitidas apenas 2 prorrogações de 30 segundos. Restam ${day.extensionsRemaining}. Ao terminar, a cidade decide se precisa de mais tempo.`
+        : "As duas prorrogações foram usadas. Ao terminar este tempo, a votação começa automaticamente."}
     </p>
   {:else if day.phase === "decision"}
     <h2>Mais tempo ou votação?</h2>
     <p>A maioria decide. Em empate, começa a votação da cidade.</p>
+    <p class="hint">
+      Restam {day.extensionsRemaining} de 2 prorrogações de 30 segundos.
+    </p>
     {#if alive && !admin && !day.submitted}
       <div class="turns">
         <button
-          disabled={!connected}
+          disabled={!connected || day.extensionsRemaining === 0}
           onclick={() => send({ type: "day-choice", choice: "extend" })}
           >Conversar mais 30 segundos</button
         ><button
@@ -79,11 +87,18 @@
       Cada jogador vivo tem um voto. Somente o Narrador vê os votos e o
       resultado.
     </p>
+    <p class="hint">
+      Você também pode se abster. A abstenção não conta contra ninguém; se todos
+      se abstiverem, a próxima noite começa sem eliminação.
+    </p>
     {#if alive && !admin && !day.submitted}
       <form
         onsubmit={(e) => {
           e.preventDefault();
-          send({ type: "day-vote", targetId: selected });
+          send({
+            type: "day-vote",
+            targetId: selected === "abstain" ? null : selected,
+          });
         }}
       >
         <fieldset disabled={!connected}>
@@ -98,6 +113,14 @@
                   bind:group={selected}
                 />{target.name}</label
               >{/each}
+            <label class:selected={selected === "abstain"}
+              ><input
+                type="radio"
+                name="city-target"
+                value="abstain"
+                bind:group={selected}
+              />Não votar nesta rodada</label
+            >
           </div>
           <button class="primary full" disabled={!selected}
             >Confirmar voto secreto</button
@@ -127,16 +150,20 @@
     {#if admin.pending.length}<div class="notice" aria-live="polite">
         Aguardando: {admin.pending.map((p) => p.name).join(", ")}.
       </div>{/if}
-    {#if admin.tally.length}<div class="city-results">
+    {#if admin.votes.length}<div class="city-results">
         <p class="eyebrow">RESULTADO · SÓ PARA O NARRADOR</p>
         {#each admin.tally as result}<p>
             <strong>{name(result.id)}</strong> — {result.count} voto(s)
           </p>{/each}
+        <p>Abstenções — {admin.abstentions}</p>
         <details>
           <summary>Ver votos individuais</summary>{#each admin.votes as vote}<p>
               {name(vote.playerId)} → {name(vote.targetId)}
             </p>{/each}
         </details>
+      </div>{/if}
+    {#if day.phase === "completed" && !admin.eliminated}<div class="notice">
+        Todos se abstiveram. Ninguém foi eliminado; a próxima noite começou.
       </div>{/if}
     {#if admin.eliminated}<div class="notice">
         {name(admin.eliminated)} foi eliminado pela cidade. A próxima noite começou.

@@ -5,8 +5,11 @@ import type {
   Role,
   Status,
   Turn,
+  GameResult,
+  TimelineEvent,
 } from "../../src/lib/game/types.js";
-import { MIN_PLAYERS } from "../../src/lib/game/roles.js";
+import { MIN_PLAYERS, roleDeck } from "../../src/lib/game/roles.js";
+import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
 export type Player = {
   id: string;
   token: string;
@@ -17,17 +20,85 @@ export type Player = {
 };
 import { DayState } from "./day-state.js";
 export class Game {
+  result: GameResult | null = null;
+  timeline: TimelineEvent[] = [];
+  private record(phase: "day" | "night", text: string) {
+    this.timeline.push({ round: this.night, phase, text });
+  }
+  private checkWinner(phase: "day" | "night" = "night") {
+    const living = this.players.filter((p) => p.alive);
+    const assassins = living.filter((p) => p.role === "assassin").length;
+    const winner =
+      phase === "day" &&
+      this.players.some(
+        (p) => p.role === "fool" && !p.alive && p.id === this.day?.eliminated,
+      )
+        ? "fool"
+        : living.length === 0
+          ? "draw"
+          : assassins === 0
+            ? "city"
+            : assassins >= living.length - assassins
+              ? "assassins"
+              : null;
+    if (!winner) return false;
+    this.status = "finished";
+    this.record(
+      phase,
+      winner === "fool"
+        ? "O Rei Louco foi eliminado pelo povo e venceu sozinho."
+        : winner === "city"
+          ? "A cidade encontrou todos os assassinos."
+          : winner === "assassins"
+            ? "Os assassinos assumiram o controle da cidade."
+            : "Não restaram sobreviventes.",
+    );
+    this.result = {
+      winner,
+      rounds: this.night,
+      players: this.players.map((p) => ({
+        ...this.publicPlayer(p),
+        role: p.role,
+      })),
+      timeline: [...this.timeline],
+    };
+    this.day = null;
+    return true;
+  }
+  restart() {
+    if (this.status !== "finished")
+      throw new Error("Aguarde o fim da partida para sortear novamente.");
+    const players = this.players;
+    this.reset();
+    this.players = players;
+    for (const player of players) {
+      player.alive = true;
+      player.role = null;
+    }
+    this.draw();
+  }
   day: DayState | null = null;
-  constructor(private now: () => number = Date.now) {}
+  constructor(
+    private now: () => number = Date.now,
+    private random: (max: number) => number = randomInt,
+  ) {}
   tick() {
-    return this.day && this.status === "day"
-      ? this.day.tick(this.now())
-      : false;
+    const changed = this.status === "day" && !!this.day?.tick(this.now());
+    if (changed && this.day?.phase === "voting")
+      this.record(
+        "day",
+        "As duas prorrogações terminaram. A votação começou automaticamente.",
+      );
+    return changed;
   }
   dayChoice(p: Player, choice: unknown) {
     if (this.status !== "day" || !p.alive || !this.day)
       throw new Error("Votação indisponível.");
     this.day.choose(p.id, choice, this.now());
+    if (this.day.phase === "discussion")
+      this.record("day", "A cidade escolheu conversar por mais 30 segundos.");
+    if (this.day.phase === "voting")
+      this.record("day", "A cidade decidiu iniciar a votação.");
   }
   dayVote(p: Player, target: unknown) {
     if (this.status !== "day" || !p.alive || !this.day)
@@ -44,7 +115,15 @@ export class Game {
   private finishDay() {
     if (this.day?.phase !== "completed") return;
     const victim = this.players.find((p) => p.id === this.day!.eliminated);
-    if (victim) victim.alive = false;
+    if (victim) {
+      victim.alive = false;
+      this.record("day", `${victim.name} foi eliminado pela cidade.`);
+    } else
+      this.record(
+        "day",
+        "Todos se abstiveram. Ninguém foi eliminado pela cidade.",
+      );
+    if (this.checkWinner("day")) return;
     this.startNight();
   }
   private dayView(p?: Player) {
@@ -53,6 +132,10 @@ export class Game {
       phase: this.day.phase,
       remaining: this.day.remaining(this.now()),
       duration: this.day.duration,
+      extensionsRemaining: Math.max(
+        0,
+        MAX_DAY_EXTENSIONS - this.day.extensions,
+      ),
       submitted:
         !!p &&
         (this.day.phase === "decision"
@@ -69,18 +152,28 @@ export class Game {
   status: Status = "waiting";
   night = 0;
   assassinTarget: string | null = null;
+  assassinTargets: string[] = [];
   assassinVotes = new Map<string, string>();
   doctorTarget: string | null = null;
-  detectiveTarget: string | null = null;
+  bodyguardTarget: string | null = null;
+  seerTarget: string | null = null;
+  sheriffTarget: string | null = null;
+  sheriffSpent = false;
+  sheriffPassed = false;
   outcome: string | null = null;
   reset() {
     this.players = [];
     this.status = "waiting";
     this.day = null;
     this.night = 0;
-    this.assassinTarget = this.doctorTarget = this.detectiveTarget = null;
+    this.assassinTarget = this.doctorTarget = null;
+    this.assassinTargets = [];
     this.assassinVotes.clear();
     this.outcome = null;
+    this.result = null;
+    this.timeline = [];
+    this.bodyguardTarget = this.seerTarget = this.sheriffTarget = null;
+    this.sheriffSpent = this.sheriffPassed = false;
   }
   join(name: unknown) {
     if (this.status !== "waiting")
@@ -107,14 +200,8 @@ export class Game {
     if (this.status !== "waiting")
       throw new Error("Os papéis já foram sorteados.");
     if (this.players.length < MIN_PLAYERS)
-      throw new Error("São necessários pelo menos 4 jogadores.");
-    const deck: Role[] = [
-      "assassin",
-      "assassin",
-      "doctor",
-      "detective",
-      ...Array<Role>(this.players.length - 4).fill("citizen"),
-    ];
+      throw new Error("É necessário pelo menos 1 jogador.");
+    const deck = roleDeck(this.players.length);
     for (let i = deck.length - 1; i > 0; i--) {
       const j = randomInt(i + 1);
       [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -122,20 +209,31 @@ export class Game {
     this.players.forEach((p, i) => (p.role = deck[i]));
     this.status = "night";
     this.night = 1;
+    this.record(
+      "night",
+      `${this.players.length} jogadores receberam seus papéis.`,
+    );
+    this.checkWinner();
   }
   private startNight() {
     if (this.status !== "day" || this.day?.phase !== "completed")
       throw new Error("A próxima noite só pode começar depois do dia.");
     this.status = "night";
     this.night++;
-    this.assassinTarget = this.doctorTarget = this.detectiveTarget = null;
+    this.bodyguardTarget = this.seerTarget = this.sheriffTarget = null;
+    this.sheriffPassed = false;
+    this.assassinTarget = this.doctorTarget = null;
+    this.assassinTargets = [];
     this.assassinVotes.clear();
     this.outcome = null;
   }
   actionTurn(p: Player): Turn | null {
     return p.role === "assassin"
       ? "assassins"
-      : p.role === "doctor" || p.role === "detective"
+      : p.role === "doctor" ||
+          p.role === "bodyguard" ||
+          p.role === "seer" ||
+          (p.role === "sheriff" && !this.sheriffSpent)
         ? p.role
         : null;
   }
@@ -155,14 +253,20 @@ export class Game {
       ? this.assassinVotes.get(p.id)
       : p.role === "doctor"
         ? this.doctorTarget
-        : this.detectiveTarget;
+        : p.role === "bodyguard"
+          ? this.bodyguardTarget
+          : p.role === "seer"
+            ? this.seerTarget
+            : p.role === "sheriff"
+              ? this.sheriffTarget || this.sheriffPassed
+              : null;
   }
   targets(p: Player) {
     return this.players.filter(
       (t) =>
         t.alive &&
         (p.role !== "assassin" || t.role !== "assassin") &&
-        (p.role !== "detective" || t.id !== p.id),
+        t.id !== p.id,
     );
   }
   act(p: Player, id: unknown) {
@@ -176,24 +280,22 @@ export class Game {
       this.assassinTarget = targets.length === 1 ? targets[0] : null;
     }
     if (p.role === "doctor") this.doctorTarget = target.id;
-    if (p.role === "detective") this.detectiveTarget = target.id;
+    if (p.role === "bodyguard") this.bodyguardTarget = target.id;
+    if (p.role === "seer") this.seerTarget = target.id;
+    if (p.role === "sheriff") {
+      this.sheriffTarget = target.id;
+      this.sheriffSpent = true;
+    }
+  }
+  pass(p: Player) {
+    if (p.role !== "sheriff" || !this.eligible(p) || this.chosen(p))
+      throw new Error("Você não pode passar esta ação.");
+    this.sheriffPassed = true;
   }
   assassinConflict() {
     return (
       new Set(this.assassinVotes.values()).size > 1 && !this.assassinTarget
     );
-  }
-  resolveAssassins(id: unknown) {
-    if (
-      this.status !== "night" ||
-      !this.assassinConflict() ||
-      typeof id !== "string" ||
-      ![...this.assassinVotes.values()].includes(id)
-    )
-      throw new Error(
-        "Escolha um dos alvos votados para resolver a divergência.",
-      );
-    this.assassinTarget = id;
   }
   wake() {
     if (this.status !== "night") throw new Error("A cidade não está dormindo.");
@@ -201,16 +303,46 @@ export class Game {
       throw new Error(
         "Aguarde todos os jogadores confirmarem suas ações noturnas.",
       );
-    if (this.assassinConflict())
-      throw new Error(
-        "Resolva os votos diferentes dos assassinos antes de acordar a cidade.",
-      );
-    const victim = this.players.find((p) => p.id === this.assassinTarget);
-    this.outcome = "Ninguém morreu durante a noite.";
-    if (victim && victim.id !== this.doctorTarget) {
-      victim.alive = false;
-      this.outcome = `${victim.name} morreu durante a noite.`;
+    const votedTargets = [...new Set(this.assassinVotes.values())];
+    this.assassinTargets = selectAttacks(votedTargets, this.random);
+    this.assassinTarget = this.assassinTargets[0] ?? null;
+    const attacks = new Set(this.assassinTargets);
+    if (this.sheriffTarget) attacks.add(this.sheriffTarget);
+    const victims = this.players.filter((p) => p.alive && attacks.has(p.id));
+    const guard = this.players.find((p) => p.alive && p.role === "bodyguard");
+    const deaths = new Set<string>();
+    for (const victim of victims) {
+      if (victim.id === this.doctorTarget) {
+        this.record("night", `${victim.name} foi salvo pelo Médico.`);
+      } else if (guard && victim.id === this.bodyguardTarget) {
+        deaths.add(guard.id);
+        this.record(
+          "night",
+          `${guard.name} se sacrificou para salvar ${victim.name}.`,
+        );
+      } else deaths.add(victim.id);
     }
+    this.outcome = "Ninguém morreu durante a noite.";
+    const killed = this.players.filter((p) => deaths.has(p.id));
+    if (killed.length) {
+      killed.forEach((p) => (p.alive = false));
+      this.outcome = `${killed.map((p) => p.name).join(" e ")} ${killed.length === 1 ? "morreu" : "morreram"} durante a noite.`;
+    }
+    if (votedTargets.length > 1)
+      this.record(
+        "night",
+        `O sorteio escolheu atacar: ${this.players
+          .filter((p) => this.assassinTargets.includes(p.id))
+          .map((p) => p.name)
+          .join(" e ")}.`,
+      );
+    if (this.sheriffTarget)
+      this.record(
+        "night",
+        `O Xerife disparou em ${this.players.find((p) => p.id === this.sheriffTarget)!.name}.`,
+      );
+    this.record("night", this.outcome);
+    if (this.checkWinner()) return;
     this.status = "day";
     this.day = new DayState(
       this.players
@@ -225,6 +357,7 @@ export class Game {
   adminView(): AdminView {
     return {
       kind: "admin",
+      result: this.result,
       day: this.day
         ? {
             ...this.dayView()!,
@@ -234,6 +367,9 @@ export class Game {
               targetId,
             })),
             tally: this.day.tally(),
+            abstentions: [...this.day.votes.values()].filter(
+              (target) => target === null,
+            ).length,
             tied: this.day.phase === "tie" ? this.day.leaders() : [],
             eliminated: this.day.eliminated,
           }
@@ -243,16 +379,14 @@ export class Game {
         id: p.id,
         name: p.name,
       })),
-      canWake:
-        this.status === "night" &&
-        this.pendingPlayers().length === 0 &&
-        !this.assassinConflict(),
+      canWake: this.status === "night" && this.pendingPlayers().length === 0,
       night: this.night,
       players: this.players.map((p) => ({
         ...this.publicPlayer(p),
         role: p.role,
       })),
       assassinTarget: this.assassinTarget,
+      assassinTargets: this.assassinTargets,
       assassinVotes: this.players
         .filter((p) => p.role === "assassin" && p.alive)
         .map((p) => ({
@@ -261,15 +395,20 @@ export class Game {
         })),
       assassinConflict: this.assassinConflict(),
       doctorTarget: this.doctorTarget,
-      detectiveTarget: this.detectiveTarget,
+      bodyguardTarget: this.bodyguardTarget,
+      seerTarget: this.seerTarget,
+      sheriffTarget: this.sheriffTarget,
+      sheriffSpent: this.sheriffSpent,
+      sheriffPassed: this.sheriffPassed,
       outcome: this.outcome,
     };
   }
   playerView(p: Player): PlayerView {
-    const target = this.players.find((t) => t.id === this.detectiveTarget);
     const eligible = this.eligible(p);
+    const seen = this.players.find((t) => t.id === this.seerTarget);
     return {
       kind: "player",
+      result: this.result,
       day: this.status === "day" ? this.dayView(p) : null,
       status: this.status,
       player: { ...this.publicPlayer(p), role: p.role },
@@ -286,11 +425,26 @@ export class Game {
               .filter((t) => t.role === "assassin" && t.id !== p.id)
               .map((t) => ({ id: t.id, name: t.name }))
           : [],
-      submitted: eligible && !!this.chosen(p),
-      investigation:
-        this.status === "night" && p.role === "detective" && target
-          ? { name: target.name, assassin: target.role === "assassin" }
+      submitted: this.status === "night" && p.alive && !!this.chosen(p),
+      bulletAvailable: p.role === "sheriff" && !this.sheriffSpent,
+      vision:
+        this.status === "night" && p.role === "seer" && seen?.role
+          ? { name: seen.name, role: seen.role }
           : null,
     };
   }
+}
+
+// Two distinct targets: 45% each, 10% both. With more targets, select fairly.
+export function selectAttacks(
+  targets: string[],
+  random: (max: number) => number = randomInt,
+): string[] {
+  const unique = [...new Set(targets)];
+  if (unique.length <= 1) return unique;
+  const roll = random(100);
+  if (unique.length === 2)
+    return roll < 45 ? [unique[0]] : roll < 90 ? [unique[1]] : unique;
+  const first = unique.splice(random(unique.length), 1)[0];
+  return roll < 90 ? [first] : [first, unique[random(unique.length)]];
 }

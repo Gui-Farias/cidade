@@ -3,6 +3,7 @@
   import type { ClientMessage, View } from "$lib/game/types";
   import { connectGame } from "$lib/game/websocket";
   import NarratorPanel from "$lib/components/NarratorPanel.svelte";
+  import GameEnding from "$lib/components/GameEnding.svelte";
   import SkyScene from "$lib/components/SkyScene.svelte";
   import PlayerPanel from "$lib/components/PlayerPanel.svelte";
   import "../app.css";
@@ -47,11 +48,7 @@
   data-profile={profile}
 >
   <div class="shell">
-    <header>
-      <a class="brand" href="/" aria-label="Cidade Dorme, início"
-        ><span class="brand-icon" aria-hidden="true">☾</span></a>
-    </header>
-    <div class="atmosphere">
+    <header class="atmosphere">
       <div class="atmosphere-copy">
         <span class="sky-kicker">UMA CIDADE, MUITOS SEGREDOS</span>
         <p>
@@ -66,7 +63,7 @@
         >
       </div>
       <SkyScene {night} />
-    </div>
+    </header>
     <main>
       {#if error}<div class="error" role="alert">
           {error}<button
@@ -83,6 +80,12 @@
           <h1>A cidade está chegando.</h1>
           <p>Conectando ao servidor…</p>
         </div>
+      {:else if view.kind !== "guest" && view.result}<GameEnding
+          result={view.result}
+          admin={view.kind === "admin"}
+          {connected}
+          {send}
+        />
       {:else if view.kind === "admin"}<NarratorPanel
           {view}
           {send}
@@ -123,9 +126,9 @@
         </div>{/if}
     </main>
     <footer>
-      <span>CIDADE DORME</span><span
-        >O jogo acontece aqui. A conversa, na sua chamada.</span
-      ><span>{night ? "BOA NOITE. ☾" : "UM NOVO DIA. ☼"}</span>
+      <span>CIDADE DORME</span>
+      <span>#guiFariasTheFirstOfHisName</span>
+      <span>#justiceForTinkerbell</span>
     </footer>
   </div>
 </div>

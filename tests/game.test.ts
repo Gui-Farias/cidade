@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { WebSocket } from "ws";
-import { Game } from "../server/websocket/game-state.js";
+import { Game as FullGame } from "../server/websocket/game-state.js";
 import { attachGameServer } from "../server/websocket/game-server.js";
 import type {
   ServerMessage,
@@ -12,10 +12,22 @@ import type {
   PlayerView,
 } from "../src/lib/game/types.js";
 
+// Preserve the original four-role regression scenarios; the expanded deck is tested separately.
+class Game extends FullGame {
+  override draw() {
+    super.draw();
+    for (const p of this.players)
+      if (["bodyguard", "seer", "fool"].includes(p.role!)) p.role = "citizen";
+      else if (p.role === "sheriff") p.role = "seer";
+  }
+}
 test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", async () => {
   const server = createServer();
   let now = Date.now();
-  const game = new Game(() => now);
+  const game = new Game(
+    () => now,
+    () => 0,
+  );
   const { wss } = attachGameServer(server, game);
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -80,18 +92,18 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     const roster = (admin.view as AdminView).players;
     assert.equal(roster.filter((p) => p.role === "assassin").length, 2);
     assert.equal(roster.filter((p) => p.role === "doctor").length, 1);
-    assert.equal(roster.filter((p) => p.role === "detective").length, 1);
+    assert.equal(roster.filter((p) => p.role === "seer").length, 1);
     assert.equal(roster.filter((p) => p.role === "citizen").length, 5);
     const byRole = (role: string) =>
       people.filter((p) => (p.view as PlayerView).player.role === role);
     const [a1, a2] = byRole("assassin");
     const [doctor] = byRole("doctor");
-    const [detective] = byRole("detective");
+    const [seer] = byRole("seer");
     const [citizen] = byRole("citizen");
     const id = (p: typeof citizen) => (p.view as PlayerView).player.id;
     async function finishDay(adminClient: typeof admin) {
-      assert.equal((adminClient.view as AdminView).day!.remaining, 60);
-      now += 60_000;
+      assert.equal((adminClient.view as AdminView).day!.remaining, 80);
+      now += 80_000;
       const living = people.filter((p) => (p.view as PlayerView).player.alive);
       for (const p of living) p.send({ type: "day-choice", choice: "vote" });
       await adminClient.wait(
@@ -102,11 +114,15 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
           p !== citizen && (p.view as PlayerView).player.role === "citizen",
       )!;
       for (const p of living)
-        p.send({ type: "day-vote", targetId: id(victim) });
+        p.send({
+          type: "day-vote",
+          targetId: p === citizen ? null : id(victim),
+        });
       await adminClient.wait(
         () => (adminClient.view as AdminView).status === "night",
       );
       assert.equal((adminClient.view as AdminView).day!.eliminated, id(victim));
+      assert.equal((adminClient.view as AdminView).day!.abstentions, 1);
     }
 
     for (const p of people) {
@@ -140,7 +156,7 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     ]);
     assert.deepEqual((citizen.view as PlayerView).partners, []);
     assert((doctor.view as PlayerView).action);
-    assert((detective.view as PlayerView).action);
+    assert((seer.view as PlayerView).action);
     assert.equal((admin.view as AdminView).pendingPlayers.length, 4);
     assert.equal((admin.view as AdminView).canWake, false);
     admin.send({ type: "wake" });
@@ -165,29 +181,23 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     admin.send({ type: "wake" });
     await admin.wait(() => admin.messages.some((m) => m.type === "error"));
     assert.equal((admin.view as AdminView).status, "night");
-    admin.send({ type: "resolve-assassins", targetId: id(citizen) });
-    await admin.wait(
-      () => (admin.view as AdminView).assassinTarget === id(citizen),
-    );
     await doctor.wait(() => !!(doctor.view as PlayerView).action);
     assert(
-      (doctor.view as PlayerView).action!.targets.some(
+      !(doctor.view as PlayerView).action!.targets.some(
         (t) => t.id === id(doctor),
       ),
     );
     doctor.send({ type: "act", targetId: id(citizen) });
     await admin.wait(() => !!(admin.view as AdminView).doctorTarget);
-    await detective.wait(() => !!(detective.view as PlayerView).action);
+    await seer.wait(() => !!(seer.view as PlayerView).action);
     assert(
-      !(detective.view as PlayerView).action!.targets.some(
-        (t) => t.id === id(detective),
-      ),
+      !(seer.view as PlayerView).action!.targets.some((t) => t.id === id(seer)),
     );
-    detective.send({ type: "act", targetId: id(a1) });
-    await detective.wait(() => !!(detective.view as PlayerView).investigation);
-    assert.equal((detective.view as PlayerView).investigation!.assassin, true);
-    for (const p of people.filter((p) => p !== detective))
-      assert.equal((p.view as PlayerView).investigation, null);
+    seer.send({ type: "act", targetId: id(a1) });
+    await seer.wait(() => !!(seer.view as PlayerView).vision);
+    assert.equal((seer.view as PlayerView).vision!.role, "assassin");
+    for (const p of people.filter((p) => p !== seer))
+      assert.equal((p.view as PlayerView).vision, null);
     await admin.wait(() => (admin.view as AdminView).canWake);
     admin.send({ type: "wake" });
     await admin.wait(() => (admin.view as AdminView).status === "day");
@@ -198,7 +208,7 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     for (const p of people) {
       await p.wait(() => (p.view as PlayerView).status === "day");
       assert.equal((p.view as PlayerView).action, null);
-      assert.equal((p.view as PlayerView).investigation, null);
+      assert.equal((p.view as PlayerView).vision, null);
     }
     admin.ws.close();
     await once(admin.ws, "close");
@@ -212,10 +222,10 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     );
     a2.send({ type: "act", targetId: id(doctor) });
     doctor.send({ type: "act", targetId: id(citizen) });
-    await detective.wait(() => !!(detective.view as PlayerView).action);
-    detective.send({ type: "act", targetId: id(citizen) });
-    await detective.wait(() => !!(detective.view as PlayerView).investigation);
-    assert.equal((detective.view as PlayerView).investigation!.assassin, false);
+    await seer.wait(() => !!(seer.view as PlayerView).action);
+    seer.send({ type: "act", targetId: id(citizen) });
+    await seer.wait(() => !!(seer.view as PlayerView).vision);
+    assert.equal((seer.view as PlayerView).vision!.role, "citizen");
     reAdmin.send({ type: "wake" });
     await doctor.wait(() => !(doctor.view as PlayerView).player.alive);
     for (const p of people)
@@ -242,6 +252,40 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
       reDoctor.messages.some((m) => m.type === "error"),
     );
     assert.equal((reDoctor.view as PlayerView).action, null);
+    for (const assassin of [a1, a2])
+      assassin.send({ type: "act", targetId: id(citizen) });
+    seer.send({ type: "act", targetId: id(a1) });
+    await reAdmin.wait(() => (reAdmin.view as AdminView).canWake);
+    reAdmin.send({ type: "wake" });
+    await reAdmin.wait(() => (reAdmin.view as AdminView).status === "day");
+    const survivors = people.filter(
+      (p) =>
+        (reAdmin.view as AdminView).players.find((t) => t.id === id(p))!.alive,
+    );
+    now += 80_000;
+    for (const p of survivors) p.send({ type: "day-choice", choice: "vote" });
+    await reAdmin.wait(
+      () => (reAdmin.view as AdminView).day?.phase === "voting",
+    );
+    const lastVictim = survivors.find(
+      (p) => (p.view as PlayerView).player.role === "citizen",
+    )!;
+    for (const p of survivors)
+      p.send({ type: "day-vote", targetId: id(lastVictim) });
+    await reAdmin.wait(() => (reAdmin.view as AdminView).status === "finished");
+    assert.equal((reAdmin.view as AdminView).result!.winner, "assassins");
+    const returned = await client({ playerToken: citizen.token });
+    assert.equal((returned.view as PlayerView).status, "finished");
+    assert.equal((returned.view as PlayerView).result!.winner, "assassins");
+    returned.send({ type: "restart" });
+    await returned.wait(() =>
+      returned.messages.some((m) => m.type === "error"),
+    );
+    reAdmin.send({ type: "restart" });
+    await reAdmin.wait(() => (reAdmin.view as AdminView).status === "night");
+    await returned.wait(() => (returned.view as PlayerView).player.alive);
+    assert.equal((returned.view as PlayerView).result, null);
+    assert.equal((reAdmin.view as AdminView).players.length, 9);
   } finally {
     for (const ws of clients) ws.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
@@ -250,10 +294,12 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
 });
 
 test("Votos iguais, reconexão de estado e nova noite", async () => {
-  const { Game } = await import("../server/websocket/game-state.js");
   let now = Date.now();
-  const game = new Game(() => now);
-  const players = ["A", "B", "C", "D"].map((name) => game.join(name));
+  const game = new Game(
+    () => now,
+    () => 0,
+  );
+  const players = ["A", "B", "C", "D", "E", "F"].map((name) => game.join(name));
   game.draw();
   const assassins = players.filter((p) => p.role === "assassin");
   const target = players.find((p) => p.role === "doctor")!;
@@ -266,16 +312,16 @@ test("Votos iguais, reconexão de estado e nova noite", async () => {
   assert.equal(game.assassinConflict(), false);
   assert.equal(game.assassinTarget, target.id);
   assert.throws(() => game.wake(), /Aguarde todos/);
-  const detective = players.find((p) => p.role === "detective")!;
+  const seer = players.find((p) => p.role === "seer")!;
   target.connected = false;
   assert(game.pendingPlayers().includes(target));
-  game.act(detective, assassins[0].id);
+  game.act(seer, assassins[0].id);
   assert.throws(() => game.wake(), /Aguarde todos/);
-  game.act(target, detective.id);
+  game.act(target, seer.id);
   assert.equal(game.adminView().canWake, true);
   game.wake();
   assert.equal(target.alive, false);
-  now += 60_000;
+  now += 80_000;
   game.tick();
   for (const p of players.filter((p) => p.alive)) game.dayChoice(p, "vote");
   for (const p of players.filter((p) => p.alive))

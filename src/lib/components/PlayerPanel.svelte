@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PlayerView, ClientMessage } from "$lib/game/types";
+  import { roles } from "$lib/game/roles";
   import DayPanel from "./DayPanel.svelte";
   import RoleCard from "./RoleCard.svelte";
   let {
@@ -25,7 +26,19 @@
 </script>
 
 <div class="player-layout" class:player-dead={!view.player.alive}>
-  {#if view.status !== "waiting" && view.player.role}<RoleCard role={view.player.role} partners={view.partners} alive={view.player.alive} />{/if}
+  {#if !view.player.alive}
+    <div class="notice death-notice" role="status">
+      <strong>Você está morto.</strong>
+      <p>
+        Continue acompanhando a partida; suas ações noturnas estão encerradas.
+      </p>
+    </div>
+  {/if}
+  {#if view.status !== "waiting" && view.player.role}<RoleCard
+      role={view.player.role}
+      partners={view.partners}
+      alive={view.player.alive}
+    />{/if}
   <p class="eyebrow">VOCÊ FAZ PARTE DA CIDADE</p>
   <h1>Olá, {view.player.name}<span class="accent">.</span></h1>
   {#if view.status === "waiting"}<section class="panel waiting-screen">
@@ -37,10 +50,6 @@
       </div>
     </section>
   {:else}
-    {#if !view.player.alive}<div class="notice">
-        Você está morto. Continue acompanhando a partida; suas ações noturnas
-        estão encerradas.
-      </div>{/if}
     {#if view.status === "day" && view.day}
       <DayPanel day={view.day} alive={view.player.alive} {connected} {send} />
     {:else if view.action}
@@ -49,9 +58,13 @@
         <h2>
           {view.action.turn === "assassins"
             ? "Escolha uma vítima"
-            : view.action.turn === "doctor"
+            : view.action.turn === "doctor" || view.action.turn === "bodyguard"
               ? "Quem você deseja proteger?"
-              : "Quem você deseja investigar?"}
+              : view.action.turn === "sheriff"
+                ? "Em quem deseja usar sua única bala?"
+                : view.action.turn === "seer"
+                  ? "De quem deseja ver o papel?"
+                  : "De quem deseja ver o papel?"}
         </h2>
         <form
           onsubmit={(e) => {
@@ -73,12 +86,24 @@
                 >{/each}
             </div>
             <button class="primary full" disabled={!selected}
-              >{view.action.turn === "detective"
-                ? "Investigar"
+              >{view.action.turn === "seer"
+                ? "Consultar papel"
                 : "Confirmar escolha"}</button
             >
           </fieldset>
         </form>
+        {#if view.action.turn === "sheriff"}
+          <button
+            class="full"
+            disabled={!connected}
+            onclick={() => send({ type: "pass" })}
+            >Guardar a bala nesta noite</button
+          >
+          <p class="hint">
+            O tiro será resolvido ao amanhecer e pode ser impedido por proteção.
+            A bala é gasta ao confirmar.
+          </p>
+        {/if}
         {#if view.action.targets.length === 0}<p>
             Não há alvos disponíveis. Aguarde o Narrador.
           </p>{/if}
@@ -96,18 +121,14 @@
             : "Acompanhe a chamada enquanto os jogadores concluem suas ações."}
         </p>
       </section>{/if}
-    {#if view.investigation}<div
-        class="notice investigation"
-        aria-live="polite"
-      >
-        <p class="eyebrow">RESULTADO DA INVESTIGAÇÃO</p>
-        <strong
-          >{view.investigation.assassin ? "SIM" : "NÃO"} — {view.investigation
-            .name}
-          {view.investigation.assassin
-            ? "é Assassino."
-            : "não é Assassino."}</strong
-        >
+    {#if view.player.role === "sheriff"}<p class="hint">
+        {view.bulletAvailable
+          ? "Munição: 1 bala."
+          : "Munição esgotada. Você ainda participa das votações da cidade."}
+      </p>{/if}
+    {#if view.vision}<div class="notice investigation" aria-live="polite">
+        <p class="eyebrow">SUA VISÃO · SÓ VOCÊ VÊ</p>
+        <strong>{view.vision.name} — {roles[view.vision.role].label}</strong>
       </div>{/if}
   {/if}
 </div>

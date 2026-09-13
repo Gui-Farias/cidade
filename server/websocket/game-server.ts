@@ -89,23 +89,27 @@ export function attachGameServer(server: Server, game = new Game()) {
             name: player.name,
           });
         } else if (s?.kind === "admin" && m.type === "draw") game.draw();
+        else if (s?.kind === "admin" && m.type === "restart") game.restart();
         else if (s?.kind === "admin" && m.type === "reset") {
           game.reset();
           for (const [client, session] of sessions) {
-            if (session.kind === "player") sessions.set(client, { kind: "guest" });
+            if (session.kind === "player")
+              sessions.set(client, { kind: "guest" });
           }
-        }
-        else if (s?.kind === "admin" && m.type === "resolve-city")
+        } else if (s?.kind === "admin" && m.type === "resolve-city")
           game.resolveCity(m.targetId);
         else if (s?.kind === "player" && m.type === "day-choice")
           game.dayChoice(s.player, m.choice);
         else if (s?.kind === "player" && m.type === "day-vote")
           game.dayVote(s.player, m.targetId);
         else if (s?.kind === "admin" && m.type === "resolve-assassins")
-          game.resolveAssassins(m.targetId);
+          throw new Error(
+            "Os votos dos Assassinos são resolvidos automaticamente pelo sorteio.",
+          );
         else if (s?.kind === "admin" && m.type === "wake") game.wake();
         else if (s?.kind === "player" && m.type === "act")
           game.act(s.player, m.targetId);
+        else if (s?.kind === "player" && m.type === "pass") game.pass(s.player);
         else throw new Error("Você não tem permissão para esta ação.");
         broadcast();
       } catch (error) {
