@@ -35,13 +35,13 @@ function setup(count: number) {
   return { game, assassin, doctor, night, voting };
 }
 
-test("Composição exata nos limites 1–5, 6–10 e acima de 10", () => {
+test("Composição inclui o segundo assassino no sexto jogador e o terceiro no décimo terceiro", () => {
   for (let count = 1; count <= 20; count++) {
     const { game } = setup(count);
     assert.equal(game.players.length, count);
     assert.equal(
       game.players.filter((p) => p.role === "assassin").length,
-      count > 10 ? 3 : count > 5 ? 2 : 1,
+      count > 12 ? 3 : count >= 6 ? 2 : 1,
     );
     assert.equal(game.status, count <= 2 ? "finished" : "night");
   }
@@ -49,7 +49,7 @@ test("Composição exata nos limites 1–5, 6–10 e acima de 10", () => {
 
 test("Morte noturna em paridade encerra; proteção mantém a partida", () => {
   const saved = setup(3);
-  saved.night(saved.game.players.find((p) => p.role === "sheriff")!.id);
+  saved.night(saved.game.players.find((p) => p.role === "seer")!.id);
   assert.equal(saved.game.status, "day");
   assert.equal(saved.game.result, null);
   const killed = setup(3);
@@ -67,7 +67,7 @@ test("Morte noturna em paridade encerra; proteção mantém a partida", () => {
 test("Cidade vence ao eliminar último assassino; reinício preserva identidades e limpa histórico", () => {
   const { game, assassin, doctor, night, voting } = setup(5);
   game.adminToken = "narrador";
-  night(game.players.find((p) => p.role === "sheriff")!.id);
+  night(game.players.find((p) => p.role === "seer")!.id);
   voting();
   assert.equal(game.playerView(doctor!).result, null);
   for (const p of game.players) game.dayVote(p, assassin.id);
@@ -94,7 +94,7 @@ test("Cidade vence ao eliminar último assassino; reinício preserva identidades
 
 test("Voto da cidade em inocente pode dar vitória aos assassinos", () => {
   const { game, doctor, night, voting } = setup(3);
-  night(game.players.find((p) => p.role === "sheriff")!.id);
+  night(game.players.find((p) => p.role === "seer")!.id);
   voting();
   for (const p of game.players) game.dayVote(p, doctor!.id);
   assert.equal(game.result!.winner, "assassins");
@@ -103,7 +103,7 @@ test("Voto da cidade em inocente pode dar vitória aos assassinos", () => {
 
 test("Empate da cidade só encerra depois do desempate do Narrador", () => {
   const { game, assassin, doctor, night, voting } = setup(4);
-  night(game.players.find((p) => p.role === "sheriff")!.id);
+  night(game.players.find((p) => p.role === "seer")!.id);
   voting();
   game.players.forEach((p, i) =>
     game.dayVote(p, i < 2 ? assassin.id : doctor!.id),

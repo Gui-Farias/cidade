@@ -12,7 +12,7 @@ function setup(roll = 0) {
   for (let i = 0; i < 9; i++) game.join(`Pessoa ${i}`);
   game.draw();
   game.players.forEach((p, i) => (p.role = roleDeck(9)[i]));
-  const [a, b, doctor, sheriff, guard, seer, fool, citizen] = game.players;
+  const [a, doctor, seer, sheriff, citizen, b, guard, fool] = game.players;
   function night(
     options: {
       attacks?: string[];
@@ -58,11 +58,22 @@ test("Sorteio inclui os novos papéis uma vez conforme as vagas", () => {
   for (let count = 1; count <= 20; count++) {
     const deck = roleDeck(count);
     assert.equal(deck.length, count);
-    const special = ["doctor", "sheriff", "bodyguard", "seer", "fool"];
-    const slots = count - (count > 10 ? 3 : count > 5 ? 2 : 1);
-    special.forEach((role, i) =>
-      assert.equal(deck.filter((r) => r === role).length, slots > i ? 1 : 0),
-    );
+    const expected = [
+      "assassin",
+      "doctor",
+      "seer",
+      "sheriff",
+      "citizen",
+      "assassin",
+      "bodyguard",
+      "fool",
+    ];
+    const fullExpected = [
+      ...expected.slice(0, count),
+      ...Array(Math.max(0, count - 8)).fill("citizen"),
+    ];
+    if (count > 12) fullExpected[12] = "assassin";
+    assert.deepEqual(deck, fullExpected);
   }
 });
 

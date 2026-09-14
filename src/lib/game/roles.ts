@@ -46,11 +46,18 @@ export const roles: Record<
 export const MIN_PLAYERS = 1;
 export function roleDeck(count: number): Role[] {
   if (!Number.isInteger(count) || count < 1) return [];
-  const assassins = count > 10 ? 3 : count > 5 ? 2 : 1;
-  const deck: Role[] = Array<Role>(assassins).fill("assassin");
-  if (deck.length < count) deck.push("doctor");
-  for (const role of ["sheriff", "bodyguard", "seer", "fool"] as const)
-    if (deck.length < count) deck.push(role);
+  const order: Role[] = [
+    "assassin",
+    "doctor",
+    "seer",
+    "sheriff",
+    "citizen",
+    "assassin",
+    "bodyguard",
+    "fool",
+  ];
+  const deck = order.slice(0, count);
   while (deck.length < count) deck.push("citizen");
+  if (count > 12) deck[12] = "assassin";
   return deck;
 }

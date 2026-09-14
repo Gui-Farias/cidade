@@ -133,11 +133,11 @@ test("Todos se abstêm: sem morte ou vitória, próxima noite e limite renovado 
   game.draw();
   const assassin = game.players.find((p) => p.role === "assassin")!;
   const doctor = game.players.find((p) => p.role === "doctor")!;
-  const sheriff = game.players.find((p) => p.role === "sheriff")!;
+  const seer = game.players.find((p) => p.role === "seer")!;
   const night = () => {
-    game.act(assassin, sheriff.id);
-    game.act(doctor, sheriff.id);
-    game.pass(sheriff);
+    game.act(assassin, seer.id);
+    game.act(doctor, seer.id);
+    game.act(seer, assassin.id);
     game.wake();
   };
   night();
@@ -154,7 +154,7 @@ test("Todos se abstêm: sem morte ou vitória, próxima noite e limite renovado 
   assert.deepEqual(game.playerView(doctor), privateView);
   assert.equal(game.playerView(assassin).day!.submitted, true);
   game.dayVote(doctor, null);
-  game.dayVote(sheriff, null);
+  game.dayVote(seer, null);
   assert.equal(game.adminView().day!.abstentions, 3);
   assert(game.players.every((p) => p.alive));
   assert.equal(game.status, "night");
