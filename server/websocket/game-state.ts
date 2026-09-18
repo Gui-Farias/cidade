@@ -8,7 +8,11 @@ import type {
   GameResult,
   TimelineEvent,
 } from "../../src/lib/game/types.js";
-import { MIN_PLAYERS, roleDeck } from "../../src/lib/game/roles.js";
+import {
+  MIN_PLAYERS,
+  roleDeck,
+  SHERIFF_BULLETS,
+} from "../../src/lib/game/roles.js";
 import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
 export type Player = {
   id: string;
@@ -157,8 +161,9 @@ export class Game {
   doctorTarget: string | null = null;
   bodyguardTarget: string | null = null;
   seerTarget: string | null = null;
+  detectiveTarget: string | null = null;
   sheriffTarget: string | null = null;
-  sheriffSpent = false;
+  sheriffBullets = SHERIFF_BULLETS;
   sheriffPassed = false;
   outcome: string | null = null;
   reset() {
@@ -172,8 +177,9 @@ export class Game {
     this.outcome = null;
     this.result = null;
     this.timeline = [];
-    this.bodyguardTarget = this.seerTarget = this.sheriffTarget = null;
-    this.sheriffSpent = this.sheriffPassed = false;
+    this.bodyguardTarget = this.seerTarget = this.detectiveTarget = this.sheriffTarget = null;
+    this.sheriffBullets = SHERIFF_BULLETS;
+    this.sheriffPassed = false;
   }
   join(name: unknown) {
     if (this.status !== "waiting")
@@ -227,7 +233,7 @@ export class Game {
       throw new Error("A próxima noite só pode começar depois do dia.");
     this.status = "night";
     this.night++;
-    this.bodyguardTarget = this.seerTarget = this.sheriffTarget = null;
+    this.bodyguardTarget = this.seerTarget = this.detectiveTarget = this.sheriffTarget = null;
     this.sheriffPassed = false;
     this.assassinTarget = this.doctorTarget = null;
     this.assassinTargets = [];
@@ -240,7 +246,8 @@ export class Game {
       : p.role === "doctor" ||
           p.role === "bodyguard" ||
           p.role === "seer" ||
-          (p.role === "sheriff" && !this.sheriffSpent)
+          p.role === "detective" ||
+          (p.role === "sheriff" && this.sheriffBullets > 0)
         ? p.role
         : null;
   }
@@ -264,9 +271,11 @@ export class Game {
           ? this.bodyguardTarget
           : p.role === "seer"
             ? this.seerTarget
-            : p.role === "sheriff"
-              ? this.sheriffTarget || this.sheriffPassed
-              : null;
+            : p.role === "detective"
+              ? this.detectiveTarget
+              : p.role === "sheriff"
+                ? this.sheriffTarget || this.sheriffPassed
+                : null;
   }
   targets(p: Player) {
     return this.players.filter(
@@ -289,9 +298,10 @@ export class Game {
     if (p.role === "doctor") this.doctorTarget = target.id;
     if (p.role === "bodyguard") this.bodyguardTarget = target.id;
     if (p.role === "seer") this.seerTarget = target.id;
+    if (p.role === "detective") this.detectiveTarget = target.id;
     if (p.role === "sheriff") {
       this.sheriffTarget = target.id;
-      this.sheriffSpent = true;
+      this.sheriffBullets--;
     }
   }
   pass(p: Player) {
@@ -404,8 +414,9 @@ export class Game {
       doctorTarget: this.doctorTarget,
       bodyguardTarget: this.bodyguardTarget,
       seerTarget: this.seerTarget,
+      detectiveTarget: this.detectiveTarget,
       sheriffTarget: this.sheriffTarget,
-      sheriffSpent: this.sheriffSpent,
+      sheriffBullets: this.sheriffBullets,
       sheriffPassed: this.sheriffPassed,
       outcome: this.outcome,
     };
@@ -413,6 +424,7 @@ export class Game {
   playerView(p: Player): PlayerView {
     const eligible = this.eligible(p);
     const seen = this.players.find((t) => t.id === this.seerTarget);
+    const investigated = this.players.find((t) => t.id === this.detectiveTarget);
     return {
       kind: "player",
       result: this.result,
@@ -433,10 +445,19 @@ export class Game {
               .map((t) => ({ id: t.id, name: t.name }))
           : [],
       submitted: this.status === "night" && p.alive && !!this.chosen(p),
-      bulletAvailable: p.role === "sheriff" && !this.sheriffSpent,
+      bulletsAvailable: p.role === "sheriff" ? this.sheriffBullets : 0,
       vision:
         this.status === "night" && p.role === "seer" && seen?.role
           ? { name: seen.name, role: seen.role }
+          : null,
+      investigation:
+        this.status === "night" &&
+        p.role === "detective" &&
+        investigated?.role
+          ? {
+              name: investigated.name,
+              isAssassin: investigated.role === "assassin",
+            }
           : null,
       adminAvailable: !this.adminToken,
     };

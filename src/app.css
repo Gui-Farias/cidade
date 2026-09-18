@@ -651,6 +651,9 @@ main {
 .seer {
   color: #a58bc4;
 }
+.detective {
+  color: #4b8197;
+}
 .fool {
   color: #c17f9d;
 }
@@ -668,6 +671,11 @@ main {
   --accent: #755799;
   --accent-ink: #fff;
   --accent-soft: #e9deef;
+}
+.app-theme[data-profile="detective"] {
+  --accent: #397188;
+  --accent-ink: #fff;
+  --accent-soft: #d9ebf0;
 }
 .app-theme[data-profile="fool"] {
   --accent: #965776;
@@ -688,6 +696,11 @@ main {
   --accent: #c5ade3;
   --accent-ink: #362449;
   --accent-soft: #382d44;
+}
+.app-theme[data-time="night"][data-profile="detective"] {
+  --accent: #9ed7e6;
+  --accent-ink: #153946;
+  --accent-soft: #243941;
 }
 .app-theme[data-time="night"][data-profile="fool"] {
   --accent: #e2acc5;

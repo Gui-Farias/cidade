@@ -77,6 +77,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       (p.view as PlayerView).player.id;
     const seer = role("seer"),
       sheriff = role("sheriff"),
+      detective = role("detective"),
       fool = role("fool");
     const doctor = role("doctor"),
       guard = role("bodyguard"),
@@ -96,9 +97,9 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     await citizen.wait(() => citizen.errors.length > 0);
     assert.equal((citizen.view as PlayerView).action, null);
     sheriff.send({ type: "act", targetId: id(assassin) });
-    await sheriff.wait(() => !(sheriff.view as PlayerView).bulletAvailable);
+    await sheriff.wait(() => (sheriff.view as PlayerView).bulletsAvailable === 1);
     const reSheriff = await connect(sheriff.token);
-    assert.equal((reSheriff.view as PlayerView).bulletAvailable, false);
+    assert.equal((reSheriff.view as PlayerView).bulletsAvailable, 1);
     reSheriff.send({ type: "act", targetId: id(assassin) });
     await reSheriff.wait(() => reSheriff.errors.length > 0);
     for (const p of players) {
@@ -106,6 +107,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       if (r === "assassin") p.send({ type: "act", targetId: id(citizen) });
       if (r === "doctor") p.send({ type: "act", targetId: id(citizen) });
       if (r === "bodyguard") p.send({ type: "act", targetId: id(doctor) });
+      if (r === "detective") p.send({ type: "act", targetId: id(assassin) });
     }
     await admin.wait(() => (admin.view as AdminView).canWake);
     assert.equal((admin.view as AdminView).bodyguardTarget, id(doctor));

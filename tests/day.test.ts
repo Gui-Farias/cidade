@@ -40,7 +40,7 @@ test("Sigilo, vivos/offline, eliminação automática e limpeza para outra noite
   for (const name of ["a", "b", "c", "d", "e"]) game.join(name);
   game.draw();
   game.players.forEach((p) => {
-    if (["sheriff", "bodyguard", "seer", "fool"].includes(p.role!))
+    if (["sheriff", "bodyguard", "seer", "detective", "fool"].includes(p.role!))
       p.role = "citizen";
   });
   const target = game.players.find((p) => p.role === "citizen")!;

@@ -17,7 +17,8 @@ class Game extends FullGame {
   override draw() {
     super.draw();
     for (const p of this.players)
-      if (["bodyguard", "seer", "fool"].includes(p.role!)) p.role = "citizen";
+      if (["bodyguard", "seer", "detective", "fool"].includes(p.role!))
+        p.role = "citizen";
       else if (p.role === "sheriff") p.role = "seer";
   }
 }

@@ -19,8 +19,21 @@ export type AdminDayView = DayView & {
   eliminated: string | null;
 };
 export type Role =
-  "assassin" | "doctor" | "citizen" | "sheriff" | "bodyguard" | "seer" | "fool";
-export type Turn = "assassins" | "doctor" | "sheriff" | "bodyguard" | "seer";
+  | "assassin"
+  | "doctor"
+  | "citizen"
+  | "sheriff"
+  | "bodyguard"
+  | "seer"
+  | "detective"
+  | "fool";
+export type Turn =
+  | "assassins"
+  | "doctor"
+  | "sheriff"
+  | "bodyguard"
+  | "seer"
+  | "detective";
 export type Status = "waiting" | "night" | "day" | "finished";
 export type TimelineEvent = {
   round: number;
@@ -57,8 +70,9 @@ export type AdminView = {
   doctorTarget: string | null;
   bodyguardTarget: string | null;
   seerTarget: string | null;
+  detectiveTarget: string | null;
   sheriffTarget: string | null;
-  sheriffSpent: boolean;
+  sheriffBullets: number;
   sheriffPassed: boolean;
   outcome: string | null;
 };
@@ -72,7 +86,8 @@ export type PlayerView = {
   submitted: boolean;
   partners: Target[];
   vision: { name: string; role: Role } | null;
-  bulletAvailable: boolean;
+  investigation: { name: string; isAssassin: boolean } | null;
+  bulletsAvailable: number;
   adminAvailable: boolean;
 };
 export type View = AdminView | PlayerView | { kind: "guest"; closed: boolean };

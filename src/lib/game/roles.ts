@@ -6,7 +6,7 @@ export const roles: Record<
   sheriff: {
     label: "Xerife",
     description:
-      "Você tem uma única bala para toda a partida. À noite, atire em outra pessoa ou guarde a bala.",
+      "Você tem duas balas para toda a partida. À noite, atire em outra pessoa ou guarde suas balas.",
     symbol: "☆",
   },
   bodyguard: {
@@ -19,6 +19,12 @@ export const roles: Record<
     label: "Vidente",
     description: "A cada noite, veja em segredo o papel exato de outra pessoa.",
     symbol: "◉",
+  },
+  detective: {
+    label: "Detetive",
+    description:
+      "A cada noite, investigue outra pessoa em segredo para saber apenas se ela é Assassina ou não.",
+    symbol: "⌕",
   },
   fool: {
     label: "Rei Louco",
@@ -44,6 +50,7 @@ export const roles: Record<
   },
 };
 export const MIN_PLAYERS = 1;
+export const SHERIFF_BULLETS = 2;
 export function roleDeck(count: number): Role[] {
   if (!Number.isInteger(count) || count < 1) return [];
   const order: Role[] = [
@@ -55,9 +62,9 @@ export function roleDeck(count: number): Role[] {
     "assassin",
     "bodyguard",
     "fool",
+    "detective",
   ];
   const deck = order.slice(0, count);
   while (deck.length < count) deck.push("citizen");
-  if (count > 10) deck[10] = "assassin";
   return deck;
 }

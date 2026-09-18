@@ -12,7 +12,8 @@ function setup(roll = 0) {
   for (let i = 0; i < 9; i++) game.join(`Pessoa ${i}`);
   game.draw();
   game.players.forEach((p, i) => (p.role = roleDeck(9)[i]));
-  const [a, doctor, seer, sheriff, citizen, b, guard, fool] = game.players;
+  const [a, doctor, seer, sheriff, citizen, b, guard, fool, detective] =
+    game.players;
   function night(
     options: {
       attacks?: string[];
@@ -27,6 +28,7 @@ function setup(roll = 0) {
     game.act(doctor, options.protect ?? citizen.id);
     game.act(guard, options.guard ?? doctor.id);
     game.act(seer, fool.id);
+    game.act(detective, a.alive ? a.id : b.id);
     if (options.shot) game.act(sheriff, options.shot);
     else game.pass(sheriff);
     game.wake();
@@ -47,6 +49,7 @@ function setup(roll = 0) {
     sheriff,
     guard,
     seer,
+    detective,
     fool,
     citizen,
     night,
@@ -67,43 +70,45 @@ test("Sorteio inclui os novos papéis uma vez conforme as vagas", () => {
       "assassin",
       "bodyguard",
       "fool",
+      "detective",
     ];
     const fullExpected = [
       ...expected.slice(0, count),
-      ...Array(Math.max(0, count - 8)).fill("citizen"),
+      ...Array(Math.max(0, count - expected.length)).fill("citizen"),
     ];
-    if (count > 10) fullExpected[10] = "assassin";
     assert.deepEqual(deck, fullExpected);
   }
 });
 
-test("Xerife passa sem gastar, não pode passar duas vezes; tiro único sobrevive à reconexão e à próxima noite", () => {
+test("Xerife passa sem gastar, tem duas balas e a munição reinicia na próxima partida", () => {
   const g = setup();
   g.game.pass(g.sheriff);
-  assert(g.game.playerView(g.sheriff).bulletAvailable);
+  assert.equal(g.game.playerView(g.sheriff).bulletsAvailable, 2);
   assert.throws(() => g.game.pass(g.sheriff));
   assert.throws(() => g.game.act(g.sheriff, g.a.id));
   assert.throws(() => g.game.pass(g.citizen));
   const fired = setup();
   fired.night({ shot: fired.a.id });
   assert.equal(fired.a.alive, false);
-  assert.equal(fired.game.playerView(fired.sheriff).bulletAvailable, false);
+  assert.equal(fired.game.playerView(fired.sheriff).bulletsAvailable, 1);
   fired.vote(fired.citizen.id);
   assert.equal(fired.game.status, "night");
-  assert.equal(fired.game.playerView(fired.sheriff).action, null);
+  assert.equal(fired.game.playerView(fired.sheriff).action!.turn, "sheriff");
   assert.equal(fired.game.sheriffTarget, null);
-  assert.equal(fired.game.sheriffSpent, true);
-  assert.throws(() => fired.game.act(fired.sheriff, fired.b.id));
+  assert.equal(fired.game.sheriffBullets, 1);
+  fired.game.act(fired.sheriff, fired.b.id);
+  assert.equal(fired.game.playerView(fired.sheriff).bulletsAvailable, 0);
   assert.throws(() => fired.game.pass(fired.sheriff));
   const tokens = fired.game.players.map((p) => p.token);
   fired.game.act(fired.b, fired.fool.id);
   fired.game.act(fired.doctor, fired.b.id);
   fired.game.act(fired.guard, fired.doctor.id);
   fired.game.act(fired.seer, fired.b.id);
+  fired.game.act(fired.detective, fired.b.id);
   fired.game.wake();
   fired.vote(fired.b.id);
   fired.game.restart();
-  assert.equal(fired.game.sheriffSpent, false);
+  assert.equal(fired.game.sheriffBullets, 2);
   assert.deepEqual(
     fired.game.players.map((p) => p.token),
     tokens,
@@ -128,7 +133,7 @@ test("Guarda-costas salva de ataque duplo e tiro; Médico evita sacrifício ao p
   const safe = setup();
   safe.night({ guard: safe.citizen.id, shot: safe.citizen.id });
   assert(safe.game.players.every((p) => p.alive));
-  assert(safe.game.sheriffSpent);
+  assert.equal(safe.game.sheriffBullets, 1);
   const shot = setup();
   shot.night({ guard: shot.fool.id, shot: shot.fool.id });
   assert.equal(shot.guard.alive, false);
@@ -165,6 +170,20 @@ test("Vidente recebe papel exato só para si; não pode ver a si, repetir ou agi
   g.seer.alive = false;
   assert.equal(g.game.playerView(g.seer).action, null);
   assert.throws(() => g.game.act(g.seer, g.a.id));
+});
+
+test("Detetive só descobre se o alvo é Assassino", () => {
+  const g = setup();
+  assert.throws(() => g.game.act(g.detective, g.detective.id));
+  g.game.act(g.detective, g.a.id);
+  assert.deepEqual(g.game.playerView(g.detective).investigation, {
+    name: g.a.name,
+    isAssassin: true,
+  });
+  for (const p of g.game.players.filter((p) => p !== g.detective))
+    assert.equal(g.game.playerView(p).investigation, null);
+  assert.equal(g.game.adminView().detectiveTarget, g.a.id);
+  assert.throws(() => g.game.act(g.detective, g.b.id));
 });
 
 test("Rei Louco só vence eliminado pelo povo; mortes noturnas não encerram a partida", () => {

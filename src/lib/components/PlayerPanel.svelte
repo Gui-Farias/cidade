@@ -87,10 +87,10 @@
             : view.action.turn === "doctor" || view.action.turn === "bodyguard"
               ? "Quem você deseja proteger?"
               : view.action.turn === "sheriff"
-                ? "Em quem deseja usar sua única bala?"
+                ? "Em quem deseja usar uma bala?"
                 : view.action.turn === "seer"
                   ? "De quem deseja ver o papel?"
-                  : "De quem deseja ver o papel?"}
+                  : "Quem deseja investigar?"}
         </h2>
         <form
           onsubmit={(e) => {
@@ -112,8 +112,8 @@
                 >{/each}
             </div>
             <button class="primary full" disabled={!selected}
-              >{view.action.turn === "seer"
-                ? "Consultar papel"
+              >{view.action.turn === "seer" || view.action.turn === "detective"
+                ? "Investigar"
                 : "Confirmar escolha"}</button
             >
           </fieldset>
@@ -127,7 +127,7 @@
           >
           <p class="hint">
             O tiro será resolvido ao amanhecer e pode ser impedido por proteção.
-            A bala é gasta ao confirmar.
+            Uma bala é gasta ao confirmar.
           </p>
         {/if}
         {#if view.action.targets.length === 0}<p>
@@ -148,13 +148,20 @@
         </p>
       </section>{/if}
     {#if view.player.role === "sheriff"}<p class="hint">
-        {view.bulletAvailable
-          ? "Munição: 1 bala."
+        {view.bulletsAvailable
+          ? `Munição: ${view.bulletsAvailable} ${view.bulletsAvailable === 1 ? "bala" : "balas"}.`
           : "Munição esgotada. Você ainda participa das votações da cidade."}
       </p>{/if}
     {#if view.vision}<div class="notice investigation" aria-live="polite">
         <p class="eyebrow">SUA VISÃO · SÓ VOCÊ VÊ</p>
         <strong>{view.vision.name} — {roles[view.vision.role].label}</strong>
+      </div>{/if}
+    {#if view.investigation}<div class="notice investigation" aria-live="polite">
+        <p class="eyebrow">SUA INVESTIGAÇÃO · SÓ VOCÊ VÊ</p>
+        <strong
+          >{view.investigation.name}
+          {view.investigation.isAssassin ? "é Assassino." : "não é Assassino."}</strong
+        >
       </div>{/if}
   {/if}
 </div>

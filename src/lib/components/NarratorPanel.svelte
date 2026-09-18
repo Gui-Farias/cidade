@@ -193,7 +193,7 @@
           >
           <p class="hint">
             Só é possível continuar após todas as confirmações. O Xerife pode
-            guardar a bala.
+            guardar suas balas.
           </p>
         {/if}
       </section>
@@ -251,13 +251,18 @@
           Vidente: <strong>{name(view.seerTarget) || "nenhuma visão"}</strong>
         </p>
         <p>
+          Detetive: <strong
+            >{name(view.detectiveTarget) || "nenhuma investigação"}</strong
+          >
+        </p>
+        <p>
           Xerife: <strong
             >{view.sheriffTarget
               ? `atirou em ${name(view.sheriffTarget)}`
-              : view.sheriffSpent
-                ? "bala já utilizada"
+              : view.sheriffBullets === 0
+                ? "munição esgotada"
                 : view.sheriffPassed
-                  ? "guardou a bala"
+                  ? `guardou ${view.sheriffBullets} ${view.sheriffBullets === 1 ? "bala" : "balas"}`
                   : "aguardando escolha"}</strong
           >
         </p>
