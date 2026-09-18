@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { ClientMessage, View } from "$lib/game/types";
+  import type { ClientMessage, Status, View } from "$lib/game/types";
   import { connectGame } from "$lib/game/websocket";
   import NarratorPanel from "$lib/components/NarratorPanel.svelte";
   import GameEnding from "$lib/components/GameEnding.svelte";
@@ -11,6 +11,9 @@
   let connected = $state(false);
   let error = $state("");
   let name = $state("");
+  let rooster = $state<HTMLAudioElement>();
+  let previousStatus = $state<Status | null>(null);
+  let soundBlocked = $state(false);
   const night = $derived(view?.kind !== "guest" && view?.status === "night");
   const profile = $derived(
     view?.kind === "player" ? view.player.role || "citizen" : "narrator",
@@ -20,6 +23,23 @@
     error = "";
     client?.send(message);
   }
+  function playRooster() {
+    if (!rooster) return;
+    rooster.currentTime = 0;
+    void rooster.play().then(
+      () => (soundBlocked = false),
+      () => (soundBlocked = true),
+    );
+  }
+  $effect(() => {
+    const status = view?.kind === "guest" ? null : (view?.status ?? null);
+    const gameStarted =
+      status === "night" &&
+      (previousStatus === "waiting" || previousStatus === "finished");
+    const dayBroke = status === "day" && previousStatus === "night";
+    if (gameStarted || dayBroke) playRooster();
+    previousStatus = status;
+  });
   onMount(() => {
     client = connectGame(
       (message) => {
@@ -32,6 +52,8 @@
     return () => client?.close();
   });
 </script>
+
+<audio bind:this={rooster} preload="auto" src="/galo.mp3"></audio>
 
 <svelte:head
   ><title>Cidade Dorme — uma noite, muitos segredos</title><meta
@@ -65,6 +87,10 @@
       <SkyScene {night} />
     </header>
     <main>
+      {#if soundBlocked}<div class="notice sound-notice" role="status">
+          O navegador bloqueou o som automático.
+          <button onclick={playRooster}>Ativar som</button>
+        </div>{/if}
       {#if error}<div class="error" role="alert">
           {error}<button
             class="dismiss"

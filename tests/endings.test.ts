@@ -35,13 +35,13 @@ function setup(count: number) {
   return { game, assassin, doctor, night, voting };
 }
 
-test("Composição inclui o segundo assassino no sexto jogador e o terceiro no décimo terceiro", () => {
+test("Composição inclui o segundo assassino no sexto jogador e o terceiro no décimo primeiro", () => {
   for (let count = 1; count <= 20; count++) {
     const { game } = setup(count);
     assert.equal(game.players.length, count);
     assert.equal(
       game.players.filter((p) => p.role === "assassin").length,
-      count > 12 ? 3 : count >= 6 ? 2 : 1,
+      count > 10 ? 3 : count >= 6 ? 2 : 1,
     );
     assert.equal(game.status, count <= 2 ? "finished" : "night");
   }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { PlayerView, ClientMessage } from "$lib/game/types";
   import { roles } from "$lib/game/roles";
   import DayPanel from "./DayPanel.svelte";
@@ -13,6 +14,8 @@
     connected: boolean;
   } = $props();
   let selected = $state("");
+  let equalPresses = 0;
+  let equalTimer: ReturnType<typeof setTimeout> | undefined;
   // Preserve the selection when another player's private action updates the state.
   const actionKey = $derived(
     view.action
@@ -22,6 +25,29 @@
   $effect(() => {
     const key = actionKey;
     selected = "";
+  });
+  onMount(() => {
+    const claimWithEquals = (event: KeyboardEvent) => {
+      if (
+        event.key !== "=" ||
+        event.repeat ||
+        view.status !== "waiting" ||
+        !view.adminAvailable
+      )
+        return;
+      equalPresses++;
+      clearTimeout(equalTimer);
+      equalTimer = setTimeout(() => (equalPresses = 0), 1000);
+      if (equalPresses < 3) return;
+      clearTimeout(equalTimer);
+      equalPresses = 0;
+      send({ type: "claim-admin" });
+    };
+    window.addEventListener("keydown", claimWithEquals);
+    return () => {
+      clearTimeout(equalTimer);
+      window.removeEventListener("keydown", claimWithEquals);
+    };
   });
 </script>
 
@@ -45,9 +71,9 @@
       <span class="moon" aria-hidden="true">☾</span>
       <h2>Seu lugar está reservado.</h2>
       <p>Aguardando o Narrador iniciar a partida…</p>
-      <div class="quiet-label">
-        Enquanto isso, entre na chamada com o grupo.
-      </div>
+      {#if view.adminAvailable}<p class="hint">
+          O Narrador saiu. Pressione = três vezes para assumir.
+        </p>{/if}
     </section>
   {:else}
     {#if view.status === "day" && view.day}

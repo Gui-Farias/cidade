@@ -32,6 +32,18 @@
           send({ type: "reset" });
       }}>↺ Resetar sala</button
     >
+    {#if view.status === "waiting"}<button
+        class="reset-room"
+        disabled={!connected}
+        onclick={() => {
+          if (
+            confirm(
+              "Deixar o cargo de Narrador? Um jogador poderá assumir antes do sorteio.",
+            )
+          )
+            send({ type: "leave-admin" });
+        }}>Deixar cargo de Narrador</button
+    >{/if}
     <span class="phase"
       >{view.status === "waiting"
         ? "○ Preparação"
@@ -86,6 +98,19 @@
                 aria-label={player.connected ? "Conectado" : "Offline"}
                 class:offline={!player.connected}
               ></span>{/if}
+            {#if view.status === "waiting"}<button
+                class="remove-player"
+                disabled={!connected}
+                onclick={() => {
+                  if (
+                    confirm(
+                      `Expulsar ${player.name}? A pessoa terá de entrar novamente.`,
+                    )
+                  )
+                    send({ type: "expel-player", playerId: player.id });
+                }}
+                aria-label={`Expulsar ${player.name}`}>Expulsar</button
+            >{/if}
           </li>{/each}
       </ul>
     {/if}
@@ -198,7 +223,7 @@
             class="notice"
           >
             Votos diferentes: o sorteio decidirá automaticamente entre os alvos
-            quando a cidade acordar (90% de chance de um ataque e 10% de dois,
+            quando a cidade acordar (80% de chance de um ataque e 20% de dois,
             com chances iguais entre os alvos).
           </div>{/if}
         <p>

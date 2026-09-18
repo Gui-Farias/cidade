@@ -196,6 +196,13 @@ export class Game {
     this.players.push(player);
     return player;
   }
+  removePlayer(id: unknown) {
+    if (this.status !== "waiting")
+      throw new Error("Jogadores só podem ser removidos antes do sorteio.");
+    const index = this.players.findIndex((player) => player.id === id);
+    if (index === -1) throw new Error("Jogador não encontrado.");
+    return this.players.splice(index, 1)[0];
+  }
   draw() {
     if (this.status !== "waiting")
       throw new Error("Os papéis já foram sorteados.");
@@ -431,11 +438,12 @@ export class Game {
         this.status === "night" && p.role === "seer" && seen?.role
           ? { name: seen.name, role: seen.role }
           : null,
+      adminAvailable: !this.adminToken,
     };
   }
 }
 
-// Two distinct targets: 45% each, 10% both. With more targets, select fairly.
+// Two distinct targets: 40% each, 20% both. With more targets, select fairly.
 export function selectAttacks(
   targets: string[],
   random: (max: number) => number = randomInt,
@@ -444,7 +452,7 @@ export function selectAttacks(
   if (unique.length <= 1) return unique;
   const roll = random(100);
   if (unique.length === 2)
-    return roll < 45 ? [unique[0]] : roll < 90 ? [unique[1]] : unique;
+    return roll < 40 ? [unique[0]] : roll < 80 ? [unique[1]] : unique;
   const first = unique.splice(random(unique.length), 1)[0];
-  return roll < 90 ? [first] : [first, unique[random(unique.length)]];
+  return roll < 80 ? [first] : [first, unique[random(unique.length)]];
 }

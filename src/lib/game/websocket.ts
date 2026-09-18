@@ -46,6 +46,15 @@ export function connectGame(
           );
         }
       }
+      if (message.type === "identity-reset") {
+        try {
+          localStorage.removeItem(`cidade-dorme:${message.kind}Token`);
+          if (message.kind === "player")
+            localStorage.removeItem("cidade-dorme:name");
+        } catch {
+          onError("Não foi possível apagar sua identificação neste navegador.");
+        }
+      }
       if (message.type === "state") onConnection(true);
       onMessage(message);
     };

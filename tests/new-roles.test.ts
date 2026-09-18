@@ -72,7 +72,7 @@ test("Sorteio inclui os novos papéis uma vez conforme as vagas", () => {
       ...expected.slice(0, count),
       ...Array(Math.max(0, count - 8)).fill("citizen"),
     ];
-    if (count > 12) fullExpected[12] = "assassin";
+    if (count > 10) fullExpected[10] = "assassin";
     assert.deepEqual(deck, fullExpected);
   }
 });

@@ -519,6 +519,11 @@ main {
   margin-top: 3px;
   font-weight: 400;
 }
+.remove-player {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 5px 8px;
+}
 .dead .player-name {
   color: var(--muted);
 }

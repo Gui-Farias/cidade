@@ -9,6 +9,7 @@ export function attachGameServer(server: Server, game = new Game()) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const sessions = new Map<WebSocket, Session>();
   const living = new Set<WebSocket>();
+  let adminClaimRequired = false;
   const send = (ws: WebSocket, message: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
   };
@@ -62,7 +63,7 @@ export function attachGameServer(server: Server, game = new Game()) {
         const s = sessions.get(ws);
         if (m.type === "hello" && !s) {
           clearTimeout(helloTimeout);
-          if (!game.adminToken) {
+          if (!game.adminToken && !adminClaimRequired) {
             game.adminToken = randomUUID();
             sessions.set(ws, { kind: "admin" });
             send(ws, {
@@ -90,7 +91,48 @@ export function attachGameServer(server: Server, game = new Game()) {
           });
         } else if (s?.kind === "admin" && m.type === "draw") game.draw();
         else if (s?.kind === "admin" && m.type === "restart") game.restart();
-        else if (s?.kind === "admin" && m.type === "reset") {
+        else if (s?.kind === "admin" && m.type === "expel-player") {
+          if (game.status !== "waiting")
+            throw new Error("Jogadores só podem ser expulsos antes do sorteio.");
+          const player = game.removePlayer(m.playerId);
+          for (const [client, session] of sessions) {
+            if (session.kind === "player" && session.player === player) {
+              sessions.set(client, { kind: "guest" });
+              send(client, { type: "identity-reset", kind: "player" });
+            }
+          }
+        } else if (s?.kind === "admin" && m.type === "leave-admin") {
+          if (game.status !== "waiting")
+            throw new Error("O Narrador só pode sair antes do sorteio.");
+          game.adminToken = null;
+          adminClaimRequired = true;
+          sessions.set(ws, { kind: "guest" });
+          send(ws, { type: "identity-reset", kind: "admin" });
+        } else if (s?.kind === "player" && m.type === "claim-admin") {
+          if (game.status !== "waiting")
+            throw new Error("O Narrador só pode ser escolhido antes do sorteio.");
+          if (game.adminToken) throw new Error("Já existe um Narrador na sala.");
+          const player = game.removePlayer(s.player.id);
+          for (const [client, session] of sessions) {
+            if (
+              client !== ws &&
+              session.kind === "player" &&
+              session.player === player
+            ) {
+              sessions.set(client, { kind: "guest" });
+              send(client, { type: "identity-reset", kind: "player" });
+            }
+          }
+          game.adminToken = randomUUID();
+          adminClaimRequired = false;
+          sessions.set(ws, { kind: "admin" });
+          send(ws, { type: "identity-reset", kind: "player" });
+          send(ws, {
+            type: "identity",
+            kind: "admin",
+            token: game.adminToken,
+          });
+        } else if (s?.kind === "admin" && m.type === "reset") {
           game.reset();
           for (const [client, session] of sessions) {
             if (session.kind === "player")

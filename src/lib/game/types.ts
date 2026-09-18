@@ -73,11 +73,13 @@ export type PlayerView = {
   partners: Target[];
   vision: { name: string; role: Role } | null;
   bulletAvailable: boolean;
+  adminAvailable: boolean;
 };
 export type View = AdminView | PlayerView | { kind: "guest"; closed: boolean };
 export type ServerMessage =
   | { type: "state"; view: View }
   | { type: "identity"; kind: "admin" | "player"; token: string; name?: string }
+  | { type: "identity-reset"; kind: "admin" | "player" }
   | { type: "error"; message: string };
 export type ClientMessage =
   | { type: "hello"; adminToken?: string; playerToken?: string }
@@ -85,6 +87,9 @@ export type ClientMessage =
   | { type: "draw" }
   | { type: "reset" }
   | { type: "restart" }
+  | { type: "expel-player"; playerId: string }
+  | { type: "leave-admin" }
+  | { type: "claim-admin" }
   | { type: "day-choice"; choice: DayChoice }
   | { type: "day-vote"; targetId: string | null }
   | { type: "resolve-city"; targetId: string }

@@ -58,6 +58,6 @@ export function roleDeck(count: number): Role[] {
   ];
   const deck = order.slice(0, count);
   while (deck.length < count) deck.push("citizen");
-  if (count > 12) deck[12] = "assassin";
+  if (count > 10) deck[10] = "assassin";
   return deck;
 }

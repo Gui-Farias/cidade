@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Game, selectAttacks } from "../server/websocket/game-state.js";
 import { roleDeck } from "../src/lib/game/roles.js";
 
-test("Dois alvos: exatamente 45/45/10, sem favorecer votos repetidos", () => {
+test("Dois alvos: exatamente 40/40/20, sem favorecer votos repetidos", () => {
   const counts = new Map<string, number>();
   for (let roll = 0; roll < 100; roll++) {
     const key = selectAttacks(["a", "b", "a"], () => roll).join(",");
@@ -12,9 +12,9 @@ test("Dois alvos: exatamente 45/45/10, sem favorecer votos repetidos", () => {
   assert.deepEqual(
     [...counts],
     [
-      ["a", 45],
-      ["b", 45],
-      ["a,b", 10],
+      ["a", 40],
+      ["b", 40],
+      ["a,b", 20],
     ],
   );
   assert.deepEqual(selectAttacks(["a", "a"]), ["a"]);
@@ -23,12 +23,12 @@ test("Dois alvos: exatamente 45/45/10, sem favorecer votos repetidos", () => {
 
 test("Três alvos: todos podem ser escolhidos, nunca há três ataques", () => {
   for (let first = 0; first < 3; first++) {
-    for (const roll of [0, 89, 90, 99]) {
+    for (const roll of [0, 79, 80, 99]) {
       for (let second = 0; second < 2; second++) {
         const draws = [roll, first, second];
         const selected = selectAttacks(["a", "b", "c"], () => draws.shift()!);
         assert.equal(selected[0], ["a", "b", "c"][first]);
-        assert.equal(selected.length, roll < 90 ? 1 : 2);
+        assert.equal(selected.length, roll < 80 ? 1 : 2);
         assert.equal(new Set(selected).size, selected.length);
       }
     }
