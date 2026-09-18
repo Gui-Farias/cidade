@@ -89,7 +89,8 @@
     </p>
     <p class="hint">
       Você também pode se abster. A abstenção não conta contra ninguém; se todos
-      se abstiverem, a próxima noite começa sem eliminação.
+      se abstiverem, a próxima noite começa sem eliminação. Em caso de empate,
+      o sorteio escolhe automaticamente entre os mais votados.
     </p>
     {#if alive && !admin && !day.submitted}
       <form
@@ -132,19 +133,6 @@
           ? "Voto confirmado. Aguarde os demais."
           : "Você acompanha a votação, mas não pode votar."}
       </div>{/if}
-  {:else if day.phase === "tie"}
-    <h2>{admin ? "A votação empatou." : "Aguardando o Narrador."}</h2>
-    {#if admin}<p>
-        Escolha um dos mais votados. Ele será eliminado e a próxima noite
-        começará.
-      </p>
-      <div class="turns">
-        {#each admin.tied as id}<button
-            disabled={!connected}
-            onclick={() => send({ type: "resolve-city", targetId: id })}
-            >Eliminar {name(id)}</button
-          >{/each}
-      </div>{/if}
   {:else}<h2>Resultado da cidade</h2>{/if}
   {#if admin}
     {#if admin.pending.length}<div class="notice" aria-live="polite">
@@ -166,7 +154,9 @@
         Todos se abstiveram. Ninguém foi eliminado; a próxima noite começou.
       </div>{/if}
     {#if admin.eliminated}<div class="notice">
-        {name(admin.eliminated)} foi eliminado pela cidade. A próxima noite começou.
+        {admin.tiebreaker
+          ? `A votação empatou; o sorteio eliminou ${name(admin.eliminated)}.`
+          : `${name(admin.eliminated)} foi eliminado pela cidade.`} A próxima noite começou.
       </div>{/if}
   {/if}
 </section>

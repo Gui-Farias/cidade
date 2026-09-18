@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { once } from "node:events";
 import { WebSocket } from "ws";
-import { Game } from "../server/websocket/game-state.js";
 import { attachGameServer } from "../server/websocket/game-server.js";
+import { RoomManager } from "../server/websocket/room-manager.js";
 import type {
   View,
   PlayerView,
@@ -15,7 +15,8 @@ import type {
 test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do Rei Louco", async () => {
   const server = createServer();
   let now = 0;
-  const { wss } = attachGameServer(server, new Game(() => now));
+  const { wss } = attachGameServer(server, new RoomManager(() => now));
+  let roomCode: string | undefined;
   const sockets: WebSocket[] = [];
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -31,7 +32,10 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     ws.on("message", (raw) => {
       const message: ServerMessage = JSON.parse(raw.toString());
       if (message.type === "state") view = message.view;
-      if (message.type === "identity") token = message.token;
+      if (message.type === "identity") {
+        token = message.token;
+        roomCode = message.roomCode;
+      }
       if (message.type === "error") errors.push(message.message);
     });
     const wait = async (predicate: () => boolean) => {
@@ -43,8 +47,12 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     };
     const send = (message: object) => ws.send(JSON.stringify(message));
     await once(ws, "open");
-    send({ type: "hello", playerToken });
+    send({ type: "hello", roomCode, playerToken });
     await wait(() => !!view);
+    if (!roomCode) {
+      send({ type: "create-room" });
+      await wait(() => view.kind === "admin");
+    }
     return {
       ws,
       send,
@@ -121,7 +129,10 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     await admin.wait(() => (admin.view as AdminView).day?.phase === "voting");
     for (const p of living) p.send({ type: "day-vote", targetId: id(fool) });
     for (const p of [...players, admin]) {
-      await p.wait(() => p.view.kind !== "guest" && p.view.result !== null);
+      await p.wait(() =>
+        (p.view.kind === "player" || p.view.kind === "admin") &&
+        p.view.result !== null,
+      );
       assert.equal((p.view as PlayerView | AdminView).result!.winner, "fool");
     }
     assert.equal((guard.view as PlayerView).player.alive, true);

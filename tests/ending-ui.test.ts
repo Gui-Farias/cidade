@@ -57,7 +57,7 @@ test("Tela final renderiza vitória, derrota e empate; controles exclusivos do N
       assert(body.includes("Morto"));
       assert(body.includes("Ana morreu durante a noite."));
       assert.equal(body.includes("Jogar novamente"), admin);
-      assert.equal(body.includes("Limpar sala"), admin);
+      assert.equal(body.includes("Fechar sala"), admin);
     }
   }
 });

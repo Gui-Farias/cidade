@@ -1,20 +1,25 @@
-import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
-import { Game, type Player } from "./game-state.js";
+import type { Player } from "./game-state.js";
+import { RoomManager, type Room } from "./room-manager.js";
 import type { ServerMessage } from "../../src/lib/game/types.js";
 type Session =
-  { kind: "admin" } | { kind: "player"; player: Player } | { kind: "guest" };
-export function attachGameServer(server: Server, game = new Game()) {
+  | { kind: "lobby" }
+  | ({ room: Room } & (
+      { kind: "admin" } | { kind: "player"; player: Player } | { kind: "guest" }
+    ));
+export function attachGameServer(server: Server, rooms = new RoomManager()) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
   const sessions = new Map<WebSocket, Session>();
   const living = new Set<WebSocket>();
-  let adminClaimRequired = false;
   const send = (ws: WebSocket, message: ServerMessage) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(message));
   };
-  const broadcast = () => {
-    for (const [ws, s] of sessions)
+  const broadcast = (room: Room) => {
+    const game = room.game;
+    for (const ws of room.clients) {
+      const s = sessions.get(ws);
+      if (!s || s.kind === "lobby") continue;
       send(ws, {
         type: "state",
         view:
@@ -24,6 +29,7 @@ export function attachGameServer(server: Server, game = new Game()) {
               ? game.playerView(s.player)
               : { kind: "guest", closed: game.status !== "waiting" },
       });
+    }
   };
   server.on("upgrade", (req, socket, head) => {
     if (req.url !== "/ws") return;
@@ -59,32 +65,59 @@ export function attachGameServer(server: Server, game = new Game()) {
         const m = JSON.parse(raw.toString());
         if (!m || typeof m !== "object" || Array.isArray(m))
           throw new Error("Mensagem inválida.");
-        if (game.tick()) broadcast();
         const s = sessions.get(ws);
         if (m.type === "hello" && !s) {
           clearTimeout(helloTimeout);
-          if (!game.adminToken && !adminClaimRequired) {
-            game.adminToken = randomUUID();
-            sessions.set(ws, { kind: "admin" });
-            send(ws, {
-              type: "identity",
-              kind: "admin",
-              token: game.adminToken,
-            });
-          } else if (m.adminToken === game.adminToken)
-            sessions.set(ws, { kind: "admin" });
+          if (m.roomCode === undefined) {
+            sessions.set(ws, { kind: "lobby" });
+            send(ws, { type: "state", view: { kind: "lobby" } });
+            return;
+          }
+          const room = rooms.get(m.roomCode);
+          if (!room) {
+            sessions.set(ws, { kind: "lobby" });
+            send(ws, { type: "state", view: { kind: "missing" } });
+            return;
+          }
+          const game = room.game;
+          rooms.connect(room, ws);
+          if (game.adminToken && m.adminToken === game.adminToken)
+            sessions.set(ws, { kind: "admin", room });
           else {
             const player = game.players.find((p) => p.token === m.playerToken);
             if (player) {
               player.connected = true;
-              sessions.set(ws, { kind: "player", player });
-            } else sessions.set(ws, { kind: "guest" });
+              sessions.set(ws, { kind: "player", player, room });
+            } else sessions.set(ws, { kind: "guest", room });
           }
-        } else if (m.type === "join" && s?.kind === "guest") {
-          const player = game.join(m.name);
-          sessions.set(ws, { kind: "player", player });
+          game.tick();
+          broadcast(room);
+          return;
+        }
+        if (m.type === "create-room" && s?.kind === "lobby") {
+          const room = rooms.create();
+          rooms.connect(room, ws);
+          sessions.set(ws, { kind: "admin", room });
           send(ws, {
             type: "identity",
+            roomCode: room.code,
+            kind: "admin",
+            token: room.game.adminToken!,
+          });
+          broadcast(room);
+          return;
+        }
+        if (!s || s.kind === "lobby")
+          throw new Error("Entre em uma sala para jogar.");
+        const { room } = s;
+        const game = room.game;
+        if (game.tick()) broadcast(room);
+        if (m.type === "join" && s.kind === "guest") {
+          const player = game.join(m.name);
+          sessions.set(ws, { kind: "player", player, room });
+          send(ws, {
+            type: "identity",
+            roomCode: room.code,
             kind: "player",
             token: player.token,
             name: player.name,
@@ -93,54 +126,30 @@ export function attachGameServer(server: Server, game = new Game()) {
         else if (s?.kind === "admin" && m.type === "restart") game.restart();
         else if (s?.kind === "admin" && m.type === "expel-player") {
           if (game.status !== "waiting")
-            throw new Error("Jogadores só podem ser expulsos antes do sorteio.");
+            throw new Error(
+              "Jogadores só podem ser expulsos antes do sorteio.",
+            );
           const player = game.removePlayer(m.playerId);
-          for (const [client, session] of sessions) {
-            if (session.kind === "player" && session.player === player) {
-              sessions.set(client, { kind: "guest" });
-              send(client, { type: "identity-reset", kind: "player" });
+          for (const client of room.clients) {
+            const session = sessions.get(client);
+            if (session?.kind === "player" && session.player === player) {
+              sessions.set(client, { kind: "guest", room });
+              send(client, {
+                type: "identity-reset",
+                roomCode: room.code,
+                kind: "player",
+              });
             }
           }
-        } else if (s?.kind === "admin" && m.type === "leave-admin") {
-          if (game.status !== "waiting")
-            throw new Error("O Narrador só pode sair antes do sorteio.");
-          game.adminToken = null;
-          adminClaimRequired = true;
-          sessions.set(ws, { kind: "guest" });
-          send(ws, { type: "identity-reset", kind: "admin" });
-        } else if (s?.kind === "player" && m.type === "claim-admin") {
-          if (game.status !== "waiting")
-            throw new Error("O Narrador só pode ser escolhido antes do sorteio.");
-          if (game.adminToken) throw new Error("Já existe um Narrador na sala.");
-          const player = game.removePlayer(s.player.id);
-          for (const [client, session] of sessions) {
-            if (
-              client !== ws &&
-              session.kind === "player" &&
-              session.player === player
-            ) {
-              sessions.set(client, { kind: "guest" });
-              send(client, { type: "identity-reset", kind: "player" });
-            }
+        } else if (s?.kind === "admin" && m.type === "close-room") {
+          rooms.close(room);
+          for (const client of room.clients) {
+            sessions.set(client, { kind: "lobby" });
+            send(client, { type: "room-closed", roomCode: room.code });
           }
-          game.adminToken = randomUUID();
-          adminClaimRequired = false;
-          sessions.set(ws, { kind: "admin" });
-          send(ws, { type: "identity-reset", kind: "player" });
-          send(ws, {
-            type: "identity",
-            kind: "admin",
-            token: game.adminToken,
-          });
-        } else if (s?.kind === "admin" && m.type === "reset") {
-          game.reset();
-          for (const [client, session] of sessions) {
-            if (session.kind === "player")
-              sessions.set(client, { kind: "guest" });
-          }
-        } else if (s?.kind === "admin" && m.type === "resolve-city")
-          game.resolveCity(m.targetId);
-        else if (s?.kind === "player" && m.type === "day-choice")
+          room.clients.clear();
+          return;
+        } else if (s?.kind === "player" && m.type === "day-choice")
           game.dayChoice(s.player, m.choice);
         else if (s?.kind === "player" && m.type === "day-vote")
           game.dayVote(s.player, m.targetId);
@@ -153,7 +162,7 @@ export function attachGameServer(server: Server, game = new Game()) {
           game.act(s.player, m.targetId);
         else if (s?.kind === "player" && m.type === "pass") game.pass(s.player);
         else throw new Error("Você não tem permissão para esta ação.");
-        broadcast();
+        broadcast(room);
       } catch (error) {
         send(ws, {
           type: "error",
@@ -172,20 +181,27 @@ export function attachGameServer(server: Server, game = new Game()) {
       const s = sessions.get(ws);
       sessions.delete(ws);
       living.delete(ws);
+      if (!s || s.kind === "lobby") return;
+      rooms.disconnect(s.room, ws);
       if (s?.kind === "player")
-        s.player.connected = [...sessions.values()].some(
-          (other) => other.kind === "player" && other.player === s.player,
-        );
-      broadcast();
+        s.player.connected = [...s.room.clients].some((client) => {
+          const other = sessions.get(client);
+          return other?.kind === "player" && other.player === s.player;
+        });
+      broadcast(s.room);
     });
   });
   const dayTimer = setInterval(() => {
-    if (game.status === "day" && game.day?.phase === "discussion") {
-      game.tick();
-      broadcast();
+    for (const room of rooms.rooms.values()) {
+      if (room.game.status === "day" && room.game.day?.phase === "discussion") {
+        room.game.tick();
+        broadcast(room);
+      }
     }
   }, 1000);
   dayTimer.unref();
+  const cleanup = setInterval(() => rooms.sweep(), 60_000);
+  cleanup.unref();
   const heartbeat = setInterval(() => {
     for (const ws of wss.clients) {
       if (!living.has(ws)) {
@@ -200,6 +216,7 @@ export function attachGameServer(server: Server, game = new Game()) {
   wss.on("close", () => {
     clearInterval(heartbeat);
     clearInterval(dayTimer);
+    clearInterval(cleanup);
   });
-  return { game, wss };
+  return { rooms, wss };
 }

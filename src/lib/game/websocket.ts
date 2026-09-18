@@ -1,5 +1,7 @@
 import type { ClientMessage, ServerMessage } from "./types";
+import { roomStorageKey } from "./rooms";
 export function connectGame(
+  roomCode: string | undefined,
   onMessage: (message: ServerMessage) => void,
   onConnection: (connected: boolean) => void,
   onError: (message: string) => void,
@@ -9,7 +11,9 @@ export function connectGame(
   let stopped = false;
   let attempts = 0;
   const read = (key: string) =>
-    localStorage.getItem(`cidade-dorme:${key}`) || undefined;
+    roomCode
+      ? localStorage.getItem(roomStorageKey(roomCode, key)) || undefined
+      : undefined;
   function connect() {
     let adminToken: string | undefined;
     let playerToken: string | undefined;
@@ -28,18 +32,25 @@ export function connectGame(
     );
     socket.onopen = () => {
       attempts = 0;
-      socket.send(JSON.stringify({ type: "hello", adminToken, playerToken }));
+      socket.send(
+        JSON.stringify({ type: "hello", roomCode, adminToken, playerToken }),
+      );
     };
     socket.onmessage = (event) => {
+      if (stopped) return;
       const message = JSON.parse(event.data) as ServerMessage;
       if (message.type === "identity") {
+        roomCode = message.roomCode;
         try {
           localStorage.setItem(
-            `cidade-dorme:${message.kind}Token`,
+            roomStorageKey(roomCode, `${message.kind}Token`),
             message.token,
           );
           if (message.name)
-            localStorage.setItem("cidade-dorme:name", message.name);
+            localStorage.setItem(
+              roomStorageKey(roomCode, "name"),
+              message.name,
+            );
         } catch {
           onError(
             "Não foi possível salvar sua identificação. Evite atualizar a página.",
@@ -48,12 +59,26 @@ export function connectGame(
       }
       if (message.type === "identity-reset") {
         try {
-          localStorage.removeItem(`cidade-dorme:${message.kind}Token`);
+          localStorage.removeItem(
+            roomStorageKey(message.roomCode, `${message.kind}Token`),
+          );
           if (message.kind === "player")
-            localStorage.removeItem("cidade-dorme:name");
+            localStorage.removeItem(roomStorageKey(message.roomCode, "name"));
         } catch {
           onError("Não foi possível apagar sua identificação neste navegador.");
         }
+      }
+      if (message.type === "room-closed") {
+        try {
+          localStorage.removeItem(roomStorageKey(message.roomCode, "adminToken"));
+          localStorage.removeItem(roomStorageKey(message.roomCode, "playerToken"));
+          localStorage.removeItem(roomStorageKey(message.roomCode, "name"));
+        } catch {
+          onError("Não foi possível apagar a identificação da sala fechada.");
+        }
+        stopped = true;
+        clearTimeout(timer);
+        socket.close();
       }
       if (message.type === "state") onConnection(true);
       onMessage(message);

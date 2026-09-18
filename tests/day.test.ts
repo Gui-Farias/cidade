@@ -5,7 +5,7 @@ import { Game } from "../server/websocket/game-state.js";
 const voters = ["a", "b", "c", "d"].map((id) => ({ id, name: id }));
 
 test("80s, escolha majoritária, prorrogação de 30s e voto único", () => {
-  const day = new DayState(voters, 1000);
+  const day = new DayState(voters, 1000, () => 0);
   assert.equal(day.remaining(1000), 80);
   assert.equal(day.tick(80_999), false);
   assert.throws(() => day.choose("a", "extend", 1000));
@@ -28,10 +28,9 @@ test("80s, escolha majoritária, prorrogação de 30s e voto único", () => {
   day.vote("b", "a");
   day.vote("c", "b");
   day.vote("d", "b");
-  assert.equal(day.phase, "tie");
-  assert.throws(() => day.resolve("c"));
-  day.resolve("a");
+  assert.equal(day.phase, "completed");
   assert.equal(day.eliminated, "a");
+  assert.equal(day.tiebreaker, true);
 });
 
 test("Sigilo, vivos/offline, eliminação automática e limpeza para outra noite", () => {

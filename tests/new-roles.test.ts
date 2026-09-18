@@ -216,7 +216,7 @@ test("Rei Louco só vence eliminado pelo povo; mortes noturnas não encerram a p
   assert.equal(priority.game.result!.winner, "city");
 });
 
-test("Rei Louco vence também no desempate da votação; proteção não impede eliminação pelo povo", () => {
+test("Rei Louco vence quando é sorteado em empate; proteção não impede eliminação pelo povo", () => {
   const g = setup();
   g.night({ attacks: [g.fool.id], protect: g.fool.id, guard: g.fool.id });
   assert.equal(g.fool.alive, true);
@@ -226,8 +226,5 @@ test("Rei Louco vence também no desempate da votação; proteção não impede 
   g.game.players.forEach((p, i) =>
     g.game.dayVote(p, i < 4 ? g.fool.id : i < 8 ? g.citizen.id : g.a.id),
   );
-  assert.equal(g.game.day!.phase, "tie");
-  assert.equal(g.game.result, null);
-  g.game.resolveCity(g.fool.id);
   assert.equal(g.game.result!.winner, "fool");
 });

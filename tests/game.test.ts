@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { Game as FullGame } from "../server/websocket/game-state.js";
 import { attachGameServer } from "../server/websocket/game-server.js";
+import { RoomManager } from "../server/websocket/room-manager.js";
 import type {
   ServerMessage,
   View,
@@ -29,7 +30,11 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     () => now,
     () => 0,
   );
-  const { wss } = attachGameServer(server, game);
+  const { wss } = attachGameServer(
+    server,
+    new RoomManager(() => now, () => game),
+  );
+  let roomCode: string | undefined;
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
@@ -45,6 +50,7 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
       const m = JSON.parse(raw.toString());
       messages.push(m);
       if (m.type === "state") view = m.view;
+      if (m.type === "identity") roomCode = m.roomCode;
     });
     await once(ws, "open");
     function send(m: object) {
@@ -57,8 +63,12 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
         await new Promise((r) => setTimeout(r, 5));
       }
     }
-    send({ type: "hello", ...tokens });
+    send({ type: "hello", roomCode, ...tokens });
     await wait(() => !!view);
+    if (!roomCode) {
+      send({ type: "create-room" });
+      await wait(() => view?.kind === "admin");
+    }
     return {
       ws,
       messages,

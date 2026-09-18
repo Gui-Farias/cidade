@@ -21,29 +21,17 @@
   </div>
   <div class="heading-actions">
     <button
-      class="reset-room"
+      class="close-room"
       disabled={!connected}
       onclick={() => {
         if (
           confirm(
-            "Resetar a sala? A partida e todos os jogadores serão removidos.",
+            "Fechar esta sala? Todos voltarão para a página inicial e o convite deixará de funcionar.",
           )
         )
-          send({ type: "reset" });
-      }}>↺ Resetar sala</button
+          send({ type: "close-room" });
+      }}>Fechar sala</button
     >
-    {#if view.status === "waiting"}<button
-        class="reset-room"
-        disabled={!connected}
-        onclick={() => {
-          if (
-            confirm(
-              "Deixar o cargo de Narrador? Um jogador poderá assumir antes do sorteio.",
-            )
-          )
-            send({ type: "leave-admin" });
-        }}>Deixar cargo de Narrador</button
-    >{/if}
     <span class="phase"
       >{view.status === "waiting"
         ? "○ Preparação"

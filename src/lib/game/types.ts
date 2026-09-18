@@ -1,5 +1,4 @@
-export type DayPhase =
-  "discussion" | "decision" | "voting" | "tie" | "completed";
+export type DayPhase = "discussion" | "decision" | "voting" | "completed";
 export type DayChoice = "extend" | "vote";
 export const MAX_DAY_EXTENSIONS = 2;
 export type DayView = {
@@ -15,7 +14,7 @@ export type AdminDayView = DayView & {
   votes: { playerId: string; targetId: string | null }[];
   abstentions: number;
   tally: { id: string; count: number }[];
-  tied: string[];
+  tiebreaker: boolean;
   eliminated: string | null;
 };
 export type Role =
@@ -28,12 +27,7 @@ export type Role =
   | "detective"
   | "fool";
 export type Turn =
-  | "assassins"
-  | "doctor"
-  | "sheriff"
-  | "bodyguard"
-  | "seer"
-  | "detective";
+  "assassins" | "doctor" | "sheriff" | "bodyguard" | "seer" | "detective";
 export type Status = "waiting" | "night" | "day" | "finished";
 export type TimelineEvent = {
   round: number;
@@ -88,26 +82,40 @@ export type PlayerView = {
   vision: { name: string; role: Role } | null;
   investigation: { name: string; isAssassin: boolean } | null;
   bulletsAvailable: number;
-  adminAvailable: boolean;
 };
-export type View = AdminView | PlayerView | { kind: "guest"; closed: boolean };
+export type View =
+  | AdminView
+  | PlayerView
+  | { kind: "guest"; closed: boolean }
+  | { kind: "lobby" }
+  | { kind: "missing" };
 export type ServerMessage =
   | { type: "state"; view: View }
-  | { type: "identity"; kind: "admin" | "player"; token: string; name?: string }
-  | { type: "identity-reset"; kind: "admin" | "player" }
+  | {
+      type: "identity";
+      roomCode: string;
+      kind: "admin" | "player";
+      token: string;
+      name?: string;
+    }
+  | { type: "identity-reset"; roomCode: string; kind: "admin" | "player" }
+  | { type: "room-closed"; roomCode: string }
   | { type: "error"; message: string };
 export type ClientMessage =
-  | { type: "hello"; adminToken?: string; playerToken?: string }
+  | {
+      type: "hello";
+      roomCode?: string;
+      adminToken?: string;
+      playerToken?: string;
+    }
+  | { type: "create-room" }
   | { type: "join"; name: string }
   | { type: "draw" }
-  | { type: "reset" }
+  | { type: "close-room" }
   | { type: "restart" }
   | { type: "expel-player"; playerId: string }
-  | { type: "leave-admin" }
-  | { type: "claim-admin" }
   | { type: "day-choice"; choice: DayChoice }
   | { type: "day-vote"; targetId: string | null }
-  | { type: "resolve-city"; targetId: string }
   | { type: "wake" }
   | { type: "pass" }
   | { type: "act"; targetId: string };

@@ -5,7 +5,7 @@ import { roleDeck } from "../src/lib/game/roles.js";
 
 function setup(count: number) {
   let now = 0;
-  const game = new Game(() => now);
+  const game = new Game(() => now, () => 0);
   for (let i = 0; i < count; i++) game.join(`Pessoa ${i}`);
   game.draw();
   // Fixed assignment makes the scenarios reproducible without replacing any rules.
@@ -101,18 +101,18 @@ test("Voto da cidade em inocente pode dar vitória aos assassinos", () => {
   assert.equal(game.result!.timeline.at(-1)!.phase, "day");
 });
 
-test("Empate da cidade só encerra depois do desempate do Narrador", () => {
+test("Empate da cidade é resolvido automaticamente por sorteio", () => {
   const { game, assassin, doctor, night, voting } = setup(4);
   night(game.players.find((p) => p.role === "seer")!.id);
   voting();
   game.players.forEach((p, i) =>
     game.dayVote(p, i < 2 ? assassin.id : doctor!.id),
   );
-  assert.equal(game.result, null);
-  assert.equal(game.day!.phase, "tie");
-  game.resolveCity(assassin.id);
   assert.equal(game.result!.winner, "city");
-  assert.throws(() => game.resolveCity(doctor!.id));
+  assert.equal(game.day, null);
+  assert(
+    game.result!.timeline.some((event) => event.text.includes("sorteio")),
+  );
 });
 
 test("Sem sobreviventes encerra sem timer nem votação vazia", () => {

@@ -1,5 +1,6 @@
 import type { DayPhase, DayChoice, Target } from "../../src/lib/game/types.js";
 import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
+import { randomInt } from "node:crypto";
 
 export class DayState {
   phase: DayPhase = "discussion";
@@ -9,9 +10,11 @@ export class DayState {
   decisions = new Map<string, DayChoice>();
   votes = new Map<string, string | null>();
   eliminated: string | null = null;
+  tiebreaker = false;
   constructor(
     public voters: Target[],
     now: number,
+    private random: (max: number) => number = randomInt,
   ) {
     this.deadline = now + 80_000;
   }
@@ -58,21 +61,12 @@ export class DayState {
     this.votes.set(id, target);
     if (this.votes.size === this.voters.length) {
       const leaders = this.leaders();
-      if (leaders.length <= 1) {
-        this.eliminated = leaders[0] ?? null;
-        this.phase = "completed";
-      } else this.phase = "tie";
+      this.tiebreaker = leaders.length > 1;
+      this.eliminated = leaders.length
+        ? leaders[this.random(leaders.length)]
+        : null;
+      this.phase = "completed";
     }
-  }
-  resolve(target: unknown) {
-    if (
-      this.phase !== "tie" ||
-      typeof target !== "string" ||
-      !this.leaders().includes(target)
-    )
-      throw new Error("Escolha um dos jogadores empatados.");
-    this.eliminated = target;
-    this.phase = "completed";
   }
   tally() {
     const counts = new Map<string, number>();

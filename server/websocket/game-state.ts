@@ -110,18 +110,17 @@ export class Game {
     this.day.vote(p.id, target);
     this.finishDay();
   }
-  resolveCity(target: unknown) {
-    if (this.status !== "day" || !this.day)
-      throw new Error("Votação indisponível.");
-    this.day.resolve(target);
-    this.finishDay();
-  }
   private finishDay() {
     if (this.day?.phase !== "completed") return;
     const victim = this.players.find((p) => p.id === this.day!.eliminated);
     if (victim) {
       victim.alive = false;
-      this.record("day", `${victim.name} foi eliminado pela cidade.`);
+      this.record(
+        "day",
+        this.day!.tiebreaker
+          ? `A votação empatou; o sorteio eliminou ${victim.name}.`
+          : `${victim.name} foi eliminado pela cidade.`,
+      );
     } else
       this.record(
         "day",
@@ -366,6 +365,7 @@ export class Game {
         .filter((p) => p.alive)
         .map((p) => ({ id: p.id, name: p.name })),
       this.now(),
+      this.random,
     );
   }
   publicPlayer(p: Player) {
@@ -387,7 +387,7 @@ export class Game {
             abstentions: [...this.day.votes.values()].filter(
               (target) => target === null,
             ).length,
-            tied: this.day.phase === "tie" ? this.day.leaders() : [],
+            tiebreaker: this.day.tiebreaker,
             eliminated: this.day.eliminated,
           }
         : null,
@@ -459,7 +459,6 @@ export class Game {
               isAssassin: investigated.role === "assassin",
             }
           : null,
-      adminAvailable: !this.adminToken,
     };
   }
 }

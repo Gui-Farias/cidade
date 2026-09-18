@@ -243,6 +243,74 @@ strong {
   margin: auto;
   padding: 0 42px;
 }
+.room-lobby {
+  max-width: 860px;
+  margin: 0 auto;
+}
+.room-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 28px 0 20px;
+}
+.room-options .panel {
+  display: flex;
+  flex-direction: column;
+}
+.room-options .primary {
+  margin-top: auto;
+}
+.room-options form {
+  margin-top: auto;
+}
+.code-input,
+.room-code {
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.room-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 18px 22px;
+  margin-bottom: 28px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.room-bar .eyebrow {
+  margin-bottom: 4px;
+}
+.room-invite {
+  display: flex;
+  flex: 1;
+  gap: 10px;
+}
+.room-invite input {
+  min-width: 0;
+  margin: 0;
+}
+.room-invite button {
+  white-space: nowrap;
+}
+.home-link {
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 14px;
+}
+@media (max-width: 760px) {
+  .room-options {
+    grid-template-columns: 1fr;
+  }
+  .room-invite {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+  }
+  .room-invite input {
+    flex-basis: 100%;
+  }
+}
 header {
   height: 88px;
   display: flex;
@@ -626,7 +694,7 @@ main {
   margin: 20px 12px;
   color: var(--muted);
 }
-.reset-room {
+.close-room {
   width: auto;
   margin: 0;
   min-height: 40px;
@@ -707,7 +775,7 @@ main {
   --accent-ink: #442638;
   --accent-soft: #422e39;
 }
-.reset-room:hover:not(:disabled) {
+.close-room:hover:not(:disabled) {
   color: var(--assassin);
   border-color: var(--assassin);
   background: color-mix(in srgb, var(--assassin) 7%, transparent);
@@ -955,27 +1023,36 @@ fieldset {
   margin-top: 30px;
   padding: 30px;
 }
-.join-card label {
+.join-card label,
+.room-options label {
   display: block;
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 13px;
 }
-.join-card input {
+.join-card input,
+.room-options input,
+.room-invite input {
   width: 100%;
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 16px;
   color: var(--ink);
-  margin-bottom: 18px;
   font-size: 16px;
   transition: border-color 0.2s;
 }
-.join-card input:hover {
+.join-card input,
+.room-options input {
+  margin-bottom: 18px;
+}
+.join-card input:hover,
+.room-options input:hover,
+.room-invite input:hover {
   border-color: var(--accent);
 }
-.join-card input::placeholder {
+.join-card input::placeholder,
+.room-options input::placeholder {
   color: var(--muted);
 }
 .loading {

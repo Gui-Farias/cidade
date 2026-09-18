@@ -55,9 +55,13 @@
         <button
           disabled={!connected}
           onclick={() => {
-            if (confirm("Limpar a sala e remover os jogadores?"))
-              send({ type: "reset" });
-          }}>Limpar sala</button
+            if (
+              confirm(
+                "Fechar esta sala? Todos voltarão para a página inicial e o convite deixará de funcionar.",
+              )
+            )
+              send({ type: "close-room" });
+          }}>Fechar sala</button
         >
       </div>
       <p class="hint">

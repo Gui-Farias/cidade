@@ -5,12 +5,14 @@ import { once } from "node:events";
 import { WebSocket } from "ws";
 import { Game } from "../server/websocket/game-state.js";
 import { attachGameServer } from "../server/websocket/game-server.js";
+import { RoomManager } from "../server/websocket/room-manager.js";
 import type { AdminView, PlayerView, ServerMessage, View } from "../src/lib/game/types.js";
 
-test("Narrador expulsa jogador e transfere a condução da sala", async () => {
+test("Narrador expulsa jogador; o fechamento encerra a sala", async () => {
   const server = createServer();
   const game = new Game();
-  const { wss } = attachGameServer(server, game);
+  const { wss } = attachGameServer(server, new RoomManager(Date.now, () => game));
+  let roomCode: string | undefined;
   const sockets: WebSocket[] = [];
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
@@ -27,6 +29,7 @@ test("Narrador expulsa jogador e transfere a condução da sala", async () => {
       const message = JSON.parse(raw.toString()) as ServerMessage;
       messages.push(message);
       if (message.type === "state") view = message.view;
+      if (message.type === "identity") roomCode = message.roomCode;
     });
     const wait = async (predicate: () => boolean) => {
       const deadline = Date.now() + 3000;
@@ -36,8 +39,12 @@ test("Narrador expulsa jogador e transfere a condução da sala", async () => {
       }
     };
     await once(ws, "open");
-    ws.send(JSON.stringify({ type: "hello" }));
+    ws.send(JSON.stringify({ type: "hello", roomCode }));
     await wait(() => !!view);
+    if (!roomCode) {
+      ws.send(JSON.stringify({ type: "create-room" }));
+      await wait(() => view?.kind === "admin");
+    }
     return {
       send: (message: object) => ws.send(JSON.stringify(message)),
       wait,
@@ -67,18 +74,9 @@ test("Narrador expulsa jogador e transfere a condução da sala", async () => {
     await player.wait(() => player.view.kind === "player");
     assert.equal((player.view as PlayerView).player.name, "Ana de novo");
 
-    admin.send({ type: "leave-admin" });
-    await admin.wait(() => admin.view.kind === "guest" && !admin.view.closed);
-    await player.wait(
-      () => player.view.kind === "player" && player.view.adminAvailable,
-    );
-    assert(admin.messages.some((m) => m.type === "identity-reset" && m.kind === "admin"));
-
-    player.send({ type: "claim-admin" });
-    await player.wait(() => player.view.kind === "admin");
-    assert.equal((player.view as AdminView).players.length, 0);
-    assert(player.messages.some((m) => m.type === "identity-reset" && m.kind === "player"));
-    assert(player.messages.some((m) => m.type === "identity" && m.kind === "admin"));
+    admin.send({ type: "close-room" });
+    await player.wait(() => player.messages.some((m) => m.type === "room-closed"));
+    assert(admin.messages.some((m) => m.type === "room-closed"));
   } finally {
     for (const ws of sockets) ws.terminate();
     await new Promise<void>((resolve) => wss.close(() => resolve()));
