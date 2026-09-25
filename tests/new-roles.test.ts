@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Game } from "../server/websocket/game-state.js";
-import { roleDeck } from "../src/lib/game/roles.js";
+import { roleDeck, defaultRoleCounts } from "../src/lib/game/roles.js";
 
 function setup(roll = 0) {
   let now = 0;
@@ -10,8 +10,31 @@ function setup(roll = 0) {
     () => roll,
   );
   for (let i = 0; i < 9; i++) game.join(`Pessoa ${i}`);
+  game.roleCounts = {
+    ...defaultRoleCounts(),
+    assassin: 2,
+    bodyguard: 1,
+    seer: 1,
+    sheriff: 1,
+    fool: 1,
+  };
   game.draw();
-  game.players.forEach((p, i) => (p.role = roleDeck(9)[i]));
+  game.players.forEach(
+    (p, i) =>
+      (p.role = (
+        [
+          "assassin",
+          "doctor",
+          "seer",
+          "sheriff",
+          "citizen",
+          "assassin",
+          "bodyguard",
+          "fool",
+          "detective",
+        ] as const
+      )[i]),
+  );
   const [a, doctor, seer, sheriff, citizen, b, guard, fool, detective] =
     game.players;
   function night(
@@ -57,26 +80,15 @@ function setup(roll = 0) {
   };
 }
 
-test("Sorteio inclui os novos papéis uma vez conforme as vagas", () => {
-  for (let count = 1; count <= 20; count++) {
-    const deck = roleDeck(count);
+test("Sorteio usa quantidades configuradas e completa com cidadãos", () => {
+  const counts = { ...defaultRoleCounts(), assassin: 3, seer: 2 };
+  for (let count = 7; count <= 20; count++) {
+    const deck = roleDeck(count, counts);
     assert.equal(deck.length, count);
-    const expected = [
-      "assassin",
-      "doctor",
-      "seer",
-      "sheriff",
-      "citizen",
-      "assassin",
-      "bodyguard",
-      "fool",
-      "detective",
-    ];
-    const fullExpected = [
-      ...expected.slice(0, count),
-      ...Array(Math.max(0, count - expected.length)).fill("citizen"),
-    ];
-    assert.deepEqual(deck, fullExpected);
+    assert.equal(deck.filter((role) => role === "assassin").length, 3);
+    assert.equal(deck.filter((role) => role === "seer").length, 2);
+    assert.equal(deck.filter((role) => role === "citizen").length, count - 7);
+    assert(!deck.includes("sheriff"));
   }
 });
 
@@ -94,8 +106,8 @@ test("Xerife passa sem gastar, tem duas balas e a munição reinicia na próxima
   fired.vote(fired.citizen.id);
   assert.equal(fired.game.status, "night");
   assert.equal(fired.game.playerView(fired.sheriff).action!.turn, "sheriff");
-  assert.equal(fired.game.sheriffTarget, null);
-  assert.equal(fired.game.sheriffBullets, 1);
+  assert.equal(fired.game.chosen(fired.sheriff), false);
+  assert.equal(fired.game.playerView(fired.sheriff).bulletsAvailable, 1);
   fired.game.act(fired.sheriff, fired.b.id);
   assert.equal(fired.game.playerView(fired.sheriff).bulletsAvailable, 0);
   assert.throws(() => fired.game.pass(fired.sheriff));
@@ -108,7 +120,12 @@ test("Xerife passa sem gastar, tem duas balas e a munição reinicia na próxima
   fired.game.wake();
   fired.vote(fired.b.id);
   fired.game.restart();
-  assert.equal(fired.game.sheriffBullets, 2);
+  assert.equal(
+    fired.game.players
+      .filter((p) => p.role === "sheriff")
+      .every((p) => fired.game.playerView(p).bulletsAvailable === 2),
+    true,
+  );
   assert.deepEqual(
     fired.game.players.map((p) => p.token),
     tokens,
@@ -133,7 +150,7 @@ test("Guarda-costas salva de ataque duplo e tiro; Médico evita sacrifício ao p
   const safe = setup();
   safe.night({ guard: safe.citizen.id, shot: safe.citizen.id });
   assert(safe.game.players.every((p) => p.alive));
-  assert.equal(safe.game.sheriffBullets, 1);
+  assert.equal(safe.game.playerView(safe.sheriff).bulletsAvailable, 1);
   const shot = setup();
   shot.night({ guard: shot.fool.id, shot: shot.fool.id });
   assert.equal(shot.guard.alive, false);
@@ -164,7 +181,11 @@ test("Vidente recebe papel exato só para si; não pode ver a si, repetir ou agi
   });
   for (const p of g.game.players.filter((p) => p !== g.seer))
     assert.equal(g.game.playerView(p).vision, null);
-  assert.equal(g.game.adminView().seerTarget, g.fool.id);
+  assert.equal(
+    g.game.adminView().nightActions.find((a) => a.playerId === g.seer.id)
+      ?.targetId,
+    g.fool.id,
+  );
   assert.throws(() => g.game.act(g.seer, g.a.id));
   assert.throws(() => g.game.act(g.fool, g.a.id));
   g.seer.alive = false;
@@ -182,7 +203,11 @@ test("Detetive só descobre se o alvo é Assassino", () => {
   });
   for (const p of g.game.players.filter((p) => p !== g.detective))
     assert.equal(g.game.playerView(p).investigation, null);
-  assert.equal(g.game.adminView().detectiveTarget, g.a.id);
+  assert.equal(
+    g.game.adminView().nightActions.find((a) => a.playerId === g.detective.id)
+      ?.targetId,
+    g.a.id,
+  );
   assert.throws(() => g.game.act(g.detective, g.b.id));
 });
 

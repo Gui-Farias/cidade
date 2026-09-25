@@ -37,7 +37,7 @@
     </h1>
     <p>
       {result.winner === "fool"
-        ? "Vitória individual do Rei Louco! Ele foi eliminado pelo povo e encerrou a partida."
+        ? `Vitória individual de ${result.players.find((p) => p.id === result.winnerId)?.name ?? "Rei Louco"}! Foi eliminado pelo povo e encerrou a partida.`
         : result.winner === "city"
           ? "Vitória da cidade! Todos os assassinos foram descobertos."
           : result.winner === "assassins"
@@ -65,7 +65,8 @@
         >
       </div>
       <p class="hint">
-        Jogar novamente mantém o grupo e sua identificação como Narrador.
+        Jogar novamente mantém o grupo, os papéis configurados e sua
+        identificação como Narrador.
       </p>
     {:else}<p class="hint">Aguarde o Narrador iniciar uma nova partida.</p>{/if}
   </section>

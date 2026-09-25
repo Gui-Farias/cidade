@@ -1,3 +1,4 @@
+import { defaultRoleCounts } from "../src/lib/game/roles.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -16,6 +17,7 @@ import type {
 // Preserve the original four-role regression scenarios; the expanded deck is tested separately.
 class Game extends FullGame {
   override draw() {
+    this.roleCounts = { ...defaultRoleCounts(), assassin: 2, sheriff: 1 };
     super.draw();
     for (const p of this.players)
       if (["bodyguard", "seer", "detective", "fool"].includes(p.role!))
@@ -32,7 +34,10 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
   );
   const { wss } = attachGameServer(
     server,
-    new RoomManager(() => now, () => game),
+    new RoomManager(
+      () => now,
+      () => game,
+    ),
   );
   let roomCode: string | undefined;
   server.listen(0, "127.0.0.1");
@@ -66,7 +71,10 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     send({ type: "hello", roomCode, ...tokens });
     await wait(() => !!view);
     if (!roomCode) {
-      send({ type: "create-room" });
+      send({
+        type: "create-room",
+        roleCounts: { ...defaultRoleCounts(), assassin: 2, sheriff: 1 },
+      });
       await wait(() => view?.kind === "admin");
     }
     return {
@@ -199,7 +207,12 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
       ),
     );
     doctor.send({ type: "act", targetId: id(citizen) });
-    await admin.wait(() => !!(admin.view as AdminView).doctorTarget);
+    await admin.wait(
+      () =>
+        !!(admin.view as AdminView).nightActions.find(
+          (a) => a.playerId === id(doctor),
+        )?.targetId,
+    );
     await seer.wait(() => !!(seer.view as PlayerView).action);
     assert(
       !(seer.view as PlayerView).action!.targets.some((t) => t.id === id(seer)),

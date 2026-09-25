@@ -1,3 +1,4 @@
+import { defaultRoleCounts } from "../src/lib/game/roles.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -6,12 +7,20 @@ import { WebSocket } from "ws";
 import { Game } from "../server/websocket/game-state.js";
 import { attachGameServer } from "../server/websocket/game-server.js";
 import { RoomManager } from "../server/websocket/room-manager.js";
-import type { AdminView, PlayerView, ServerMessage, View } from "../src/lib/game/types.js";
+import type {
+  AdminView,
+  PlayerView,
+  ServerMessage,
+  View,
+} from "../src/lib/game/types.js";
 
 test("Narrador expulsa jogador; o fechamento encerra a sala", async () => {
   const server = createServer();
   const game = new Game();
-  const { wss } = attachGameServer(server, new RoomManager(Date.now, () => game));
+  const { wss } = attachGameServer(
+    server,
+    new RoomManager(Date.now, () => game),
+  );
   let roomCode: string | undefined;
   const sockets: WebSocket[] = [];
   server.listen(0, "127.0.0.1");
@@ -42,7 +51,12 @@ test("Narrador expulsa jogador; o fechamento encerra a sala", async () => {
     ws.send(JSON.stringify({ type: "hello", roomCode }));
     await wait(() => !!view);
     if (!roomCode) {
-      ws.send(JSON.stringify({ type: "create-room" }));
+      ws.send(
+        JSON.stringify({
+          type: "create-room",
+          roleCounts: defaultRoleCounts(),
+        }),
+      );
       await wait(() => view?.kind === "admin");
     }
     return {
@@ -67,7 +81,11 @@ test("Narrador expulsa jogador; o fechamento encerra a sala", async () => {
     await player.wait(
       () => player.view.kind === "guest" && !player.view.closed,
     );
-    assert(player.messages.some((m) => m.type === "identity-reset" && m.kind === "player"));
+    assert(
+      player.messages.some(
+        (m) => m.type === "identity-reset" && m.kind === "player",
+      ),
+    );
     assert.equal((admin.view as AdminView).players.length, 0);
 
     player.send({ type: "join", name: "Ana de novo" });
@@ -75,7 +93,9 @@ test("Narrador expulsa jogador; o fechamento encerra a sala", async () => {
     assert.equal((player.view as PlayerView).player.name, "Ana de novo");
 
     admin.send({ type: "close-room" });
-    await player.wait(() => player.messages.some((m) => m.type === "room-closed"));
+    await player.wait(() =>
+      player.messages.some((m) => m.type === "room-closed"),
+    );
     assert(admin.messages.some((m) => m.type === "room-closed"));
   } finally {
     for (const ws of sockets) ws.terminate();

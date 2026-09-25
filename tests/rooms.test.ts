@@ -1,3 +1,4 @@
+import { defaultRoleCounts } from "../src/lib/game/roles.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -73,10 +74,12 @@ async function fixture(rooms = new RoomManager()) {
       },
     };
   }
-  async function createRoom() {
+  async function createRoom(
+    roleCounts = { ...defaultRoleCounts(), assassin: 2 },
+  ) {
     const admin = await connect();
     assert.equal(admin.view.kind, "lobby");
-    admin.send({ type: "create-room" });
+    admin.send({ type: "create-room", roleCounts });
     await admin.wait(() => admin.view.kind === "admin");
     return admin;
   }
@@ -277,7 +280,9 @@ test("Fechar sala encaminha todas as abas da sala, sem tocar nas demais", async 
   await secondTab.wait(() =>
     secondTab.messages.some((m) => m.type === "room-closed"),
   );
-  await player.wait(() => player.messages.some((m) => m.type === "room-closed"));
+  await player.wait(() =>
+    player.messages.some((m) => m.type === "room-closed"),
+  );
   assert.equal(f.rooms.get(code), undefined);
   assert.equal(b.view.kind, "admin");
   assert.equal(
@@ -305,4 +310,64 @@ test("Códigos são normalizados e salas expiradas liberam o limite de memória"
   assert.equal(rooms.get(first.code), undefined);
   assert.notEqual(rooms.create(), first);
   assert.equal(rooms.rooms.size, 1);
+});
+
+test("WebSocket valida configuração, preserva na reconexão e bloqueia sorteio sem vagas", async (t) => {
+  const f = await fixture();
+  t.after(() => f.close());
+  const invalid = await f.connect();
+  for (const roleCounts of [
+    undefined,
+    { ...defaultRoleCounts(), doctor: 0 },
+    { ...defaultRoleCounts(), seer: 1.5 },
+    { ...defaultRoleCounts(), citizen: 2 },
+  ]) {
+    await invalid.reject({ type: "create-room", roleCounts });
+    assert.equal(f.rooms.rooms.size, 0);
+    assert.equal(invalid.view.kind, "lobby");
+  }
+  const counts = { ...defaultRoleCounts(), doctor: 2, detective: 2, seer: 2 };
+  const admin = await f.createRoom(counts);
+  const code = admin.identity.roomCode;
+  assert.deepEqual((admin.view as AdminView).roleCounts, counts);
+  await admin.reject({ type: "draw" });
+  for (let i = 0; i < 6; i++) await f.join(code, `Pessoa ${i}`);
+  await admin.reject({ type: "draw" });
+  assert((admin.view as AdminView).players.every((p) => p.role === null));
+  const extra = await f.join(code, "Última pessoa");
+  await extra.reject({ type: "create-room", roleCounts: defaultRoleCounts() });
+  await extra.reject({ type: "draw" });
+  const returned = await f.connect({
+    roomCode: code,
+    adminToken: admin.identity.token,
+  });
+  assert.deepEqual((returned.view as AdminView).roleCounts, counts);
+  const second = await f.createRoom(defaultRoleCounts());
+  assert.deepEqual((second.view as AdminView).roleCounts, defaultRoleCounts());
+  admin.send({ type: "draw", roleCounts: defaultRoleCounts() });
+  await admin.wait(() => (admin.view as AdminView).status === "night");
+  const roster = (admin.view as AdminView).players;
+  assert.equal(roster.filter((p) => p.role === "doctor").length, 2);
+  assert.equal(roster.filter((p) => p.role === "detective").length, 2);
+  assert.equal(roster.filter((p) => p.role === "seer").length, 2);
+  assert.equal(roster.filter((p) => p.role === "citizen").length, 0);
+  const room = f.rooms.get(code)!;
+  const seers = room.game.players.filter((p) => p.role === "seer");
+  room.game.act(
+    seers[0],
+    room.game.players.find((p) => p.role === "assassin")!.id,
+  );
+  const reSeer = await f.connect({
+    roomCode: code,
+    playerToken: seers[0].token,
+  });
+  const otherSeer = await f.connect({
+    roomCode: code,
+    playerToken: seers[1].token,
+  });
+  assert.equal((reSeer.view as PlayerView).vision!.role, "assassin");
+  assert.equal((otherSeer.view as PlayerView).vision, null);
+  assert((otherSeer.view as PlayerView).action);
+  assert(!("nightActions" in otherSeer.view));
+  assert(!("roleCounts" in otherSeer.view));
 });

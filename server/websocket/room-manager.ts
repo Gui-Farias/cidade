@@ -6,6 +6,11 @@ import {
   ROOM_CODE_ALPHABET,
 } from "../../src/lib/game/rooms.js";
 
+import {
+  defaultRoleCounts,
+  parseRoleCounts,
+} from "../../src/lib/game/roles.js";
+
 export const EMPTY_ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 export type Room = {
   code: string;
@@ -24,7 +29,8 @@ export class RoomManager {
     private maxRooms = 200,
   ) {}
 
-  create(): Room {
+  create(configuration: unknown = defaultRoleCounts()): Room {
+    const roleCounts = parseRoleCounts(configuration);
     this.sweep();
     if (this.rooms.size >= this.maxRooms)
       throw new Error(
@@ -40,6 +46,7 @@ export class RoomManager {
       )!;
     } while (this.rooms.has(code));
     const game = this.createGame();
+    game.roleCounts = roleCounts;
     game.adminToken = randomUUID();
     const room: Room = {
       code,

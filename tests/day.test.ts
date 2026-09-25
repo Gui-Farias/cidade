@@ -128,11 +128,12 @@ test("Abstenção conta como confirmação única, não como candidato ou desemp
 test("Todos se abstêm: sem morte ou vitória, próxima noite e limite renovado no próximo dia", () => {
   let now = 0;
   const game = new Game(() => now);
-  for (let i = 0; i < 3; i++) game.join(`Pessoa ${i}`);
+  for (let i = 0; i < 4; i++) game.join(`Pessoa ${i}`);
   game.draw();
   const assassin = game.players.find((p) => p.role === "assassin")!;
   const doctor = game.players.find((p) => p.role === "doctor")!;
-  const seer = game.players.find((p) => p.role === "seer")!;
+  const seer = game.players.find((p) => p.role === "detective")!;
+  const citizen = game.players.find((p) => p.role === "citizen")!;
   const night = () => {
     game.act(assassin, seer.id);
     game.act(doctor, seer.id);
@@ -154,7 +155,8 @@ test("Todos se abstêm: sem morte ou vitória, próxima noite e limite renovado 
   assert.equal(game.playerView(assassin).day!.submitted, true);
   game.dayVote(doctor, null);
   game.dayVote(seer, null);
-  assert.equal(game.adminView().day!.abstentions, 3);
+  game.dayVote(citizen, null);
+  assert.equal(game.adminView().day!.abstentions, 4);
   assert(game.players.every((p) => p.alive));
   assert.equal(game.status, "night");
   assert.equal(game.result, null);

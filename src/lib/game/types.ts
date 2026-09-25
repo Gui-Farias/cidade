@@ -26,6 +26,15 @@ export type Role =
   | "seer"
   | "detective"
   | "fool";
+export type ConfigurableRole = Exclude<Role, "citizen">;
+export type RoleCounts = Record<ConfigurableRole, number>;
+export type NightAction = {
+  playerId: string;
+  role: Exclude<Role, "citizen" | "assassin" | "fool">;
+  targetId: string | null;
+  passed: boolean;
+  bulletsAvailable: number;
+};
 export type Turn =
   "assassins" | "doctor" | "sheriff" | "bodyguard" | "seer" | "detective";
 export type Status = "waiting" | "night" | "day" | "finished";
@@ -37,6 +46,7 @@ export type TimelineEvent = {
 export type GameResult = {
   winner: "city" | "assassins" | "draw" | "fool";
   rounds: number;
+  winnerId: string | null;
   players: AdminPlayer[];
   timeline: TimelineEvent[];
 };
@@ -51,6 +61,8 @@ export type Target = { id: string; name: string };
 export type AdminView = {
   result: GameResult | null;
   kind: "admin";
+  roleCounts: RoleCounts;
+  nightActions: NightAction[];
   day: AdminDayView | null;
   status: Status;
   pendingPlayers: Target[];
@@ -61,13 +73,6 @@ export type AdminView = {
   assassinTargets: string[];
   assassinVotes: { playerId: string; targetId: string | null }[];
   assassinConflict: boolean;
-  doctorTarget: string | null;
-  bodyguardTarget: string | null;
-  seerTarget: string | null;
-  detectiveTarget: string | null;
-  sheriffTarget: string | null;
-  sheriffBullets: number;
-  sheriffPassed: boolean;
   outcome: string | null;
 };
 export type PlayerView = {
@@ -108,7 +113,7 @@ export type ClientMessage =
       adminToken?: string;
       playerToken?: string;
     }
-  | { type: "create-room" }
+  | { type: "create-room"; roleCounts: RoleCounts }
   | { type: "join"; name: string }
   | { type: "draw" }
   | { type: "close-room" }

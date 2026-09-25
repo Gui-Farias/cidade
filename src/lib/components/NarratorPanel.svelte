@@ -1,14 +1,17 @@
 <script lang="ts">
   import type { AdminView, ClientMessage } from "$lib/game/types";
   import DayPanel from "./DayPanel.svelte";
-  import { roles, MIN_PLAYERS, roleDeck } from "$lib/game/roles";
+  import { roles, minimumPlayers, specialRoleCount } from "$lib/game/roles";
   let {
     view,
     send,
     connected,
   }: { view: AdminView; send: (m: ClientMessage) => void; connected: boolean } =
     $props();
-  const composition = $derived(roleDeck(view.players.length));
+  const minimum = $derived(minimumPlayers(view.roleCounts));
+  const citizens = $derived(
+    Math.max(0, view.players.length - specialRoleCount(view.roleCounts)),
+  );
   const name = (id: string | null) =>
     view.players.find((p) => p.id === id)?.name;
 </script>
@@ -98,13 +101,13 @@
                     send({ type: "expel-player", playerId: player.id });
                 }}
                 aria-label={`Expulsar ${player.name}`}>Expulsar</button
-            >{/if}
+              >{/if}
           </li>{/each}
       </ul>
     {/if}
     <div class="panel-foot">
       {view.status === "waiting"
-        ? "Só você vê todos os papéis. Os assassinos também conhecem seu parceiro."
+        ? "Só você vê todos os papéis. Os assassinos também conhecem seus parceiros."
         : "Só você pode ver todos os papéis. Não compartilhe esta tela."}
     </div>
   </section>
@@ -114,34 +117,38 @@
         <p class="eyebrow">ANTES DE COMEÇAR</p>
         <h2>Toda cidade tem<br />seus segredos.</h2>
         <p>
-          Reúna o grupo na chamada. Quando todos estiverem aqui, distribua os
-          papéis.
+          Estes são os papéis escolhidos na criação da sala. Os cidadãos
+          completam as vagas conforme o grupo entra.
         </p>
         <div class="composition">
           {#each Object.keys(roles) as (keyof typeof roles)[] as role}
             <span
               ><b class={role}
-                >{composition
-                  .filter((r) => r === role)
-                  .length.toString()
+                >{(role === "citizen" ? citizens : view.roleCounts[role])
+                  .toString()
                   .padStart(2, "0")}</b
               >{roles[role].label}</span
             >
           {/each}
         </div>
-        {#if view.players.length > 0 && view.players.length < 3}<p class="hint">
-            Com 1 ou 2 jogadores, os assassinos vencem imediatamente. Reúna ao
-            menos 3 para disputar.
-          </p>{/if}
+        <p class="small">
+          Mínimo: {minimum} jogadores + Narrador. Cidadãos: preenchimento automático.
+        </p>
+        {#if view.players.length >= minimum && view.roleCounts.assassin * 2 >= view.players.length}<div
+            class="notice"
+          >
+            Com este grupo, os Assassinos já são metade ou mais dos jogadores e
+            vencerão ao iniciar. Convide mais pessoas para disputar.
+          </div>{/if}
         <button
           class="primary full"
-          disabled={!connected || view.players.length < MIN_PLAYERS}
+          disabled={!connected || view.players.length < minimum}
           onclick={() => send({ type: "draw" })}
           >Sortear papéis <span aria-hidden="true">↗</span></button
         >
         <p class="hint">
-          {view.players.length < MIN_PLAYERS
-            ? `Faltam ${MIN_PLAYERS - view.players.length} jogadores para começar.`
+          {view.players.length < minimum
+            ? `Faltam ${minimum - view.players.length} jogadores para começar.`
             : "Tudo pronto. Confirme se todos entraram."}
         </p>
       </section>
@@ -223,37 +230,24 @@
                 : name(view.assassinTarget) || "nenhuma escolha"}</strong
           >
         </p>
-        <p>
-          Médico: <strong
-            >{view.doctorTarget
-              ? `protegeu ${name(view.doctorTarget)}`
-              : "nenhuma proteção"}</strong
-          >
-        </p>
-        <p>
-          Guarda-costas: <strong
-            >{name(view.bodyguardTarget) || "nenhuma proteção"}</strong
-          >
-        </p>
-        <p>
-          Vidente: <strong>{name(view.seerTarget) || "nenhuma visão"}</strong>
-        </p>
-        <p>
-          Detetive: <strong
-            >{name(view.detectiveTarget) || "nenhuma investigação"}</strong
-          >
-        </p>
-        <p>
-          Xerife: <strong
-            >{view.sheriffTarget
-              ? `atirou em ${name(view.sheriffTarget)}`
-              : view.sheriffBullets === 0
-                ? "munição esgotada"
-                : view.sheriffPassed
-                  ? `guardou ${view.sheriffBullets} ${view.sheriffBullets === 1 ? "bala" : "balas"}`
-                  : "aguardando escolha"}</strong
-          >
-        </p>
+        {#each view.nightActions as action (action.playerId)}
+          <p>
+            {name(action.playerId)} · {roles[action.role].label}:
+            <strong
+              >{action.targetId
+                ? `${action.role === "doctor" || action.role === "bodyguard" ? "protegeu" : action.role === "sheriff" ? "atirou em" : action.role === "seer" ? "observou" : "investigou"} ${name(action.targetId)}`
+                : action.passed
+                  ? "guardou as balas"
+                  : !view.players.find((p) => p.id === action.playerId)?.alive
+                    ? "morto"
+                    : action.role === "sheriff" && action.bulletsAvailable === 0
+                      ? "munição esgotada"
+                      : "aguardando escolha"}</strong
+            >
+            {#if action.role === "sheriff"}
+              · {action.bulletsAvailable} bala(s){/if}
+          </p>
+        {/each}
         {#if view.outcome}<div class="notice">{view.outcome}</div>{/if}
       </section>
     {/if}

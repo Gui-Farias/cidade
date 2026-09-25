@@ -19,6 +19,9 @@
   let soundBlocked = $state(false);
   let inviteLink = $state("");
   let copied = $state(false);
+  let inviteFeedback = $state("");
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  const showInvite = $derived(!!roomCode && !!view && view.kind !== "missing");
   let creating = $state(false);
   const gameView = $derived(
     view?.kind === "admin" || view?.kind === "player" ? view : null,
@@ -37,9 +40,16 @@
     try {
       await navigator.clipboard.writeText(inviteLink);
       copied = true;
+      inviteFeedback = "Link copiado!";
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => {
+        copied = false;
+        inviteFeedback = "";
+      }, 2500);
     } catch {
-      error =
-        "Não foi possível copiar automaticamente. Selecione e copie o link do convite abaixo.";
+      clearTimeout(copyTimer);
+      copied = false;
+      inviteFeedback = "Selecione o link para copiar.";
     }
   }
   function playRooster() {
@@ -86,7 +96,10 @@
         creating = false;
       },
     );
-    return () => client?.close();
+    return () => {
+      client?.close();
+      clearTimeout(copyTimer);
+    };
   });
 </script>
 
@@ -111,7 +124,7 @@
   data-profile={profile}
 >
   <div class="shell">
-    <header class="atmosphere">
+    <header class="atmosphere" class:has-invite={showInvite}>
       <div class="atmosphere-copy">
         <span class="sky-kicker">UMA CIDADE, MUITOS SEGREDOS</span>
         <p>
@@ -125,30 +138,66 @@
             : "Encontre sua turma. Entre na história."}</span
         >
       </div>
-      <SkyScene {night} />
-    </header>
-    <main>
-      {#if roomCode && view && view.kind !== "missing"}
-        <section class="room-bar" aria-label="Convite da sala">
-          <div>
-            <p class="eyebrow">SUA SALA</p>
-            <strong class="room-code">{roomCode}</strong>
+      {#if showInvite}
+        <section class="header-invite" aria-label="Convite da sala">
+          <div class="invite-caption">
+            <span>SALA <strong class="room-code">{roomCode}</strong></span>
+            <span class="invite-feedback" role="status">{inviteFeedback}</span>
           </div>
-          <div class="room-invite">
+          <div class="invite-field" class:copied>
             <label for="invite-link" class="sr-only">Link de convite</label>
             <input
               id="invite-link"
               readonly
               value={inviteLink}
-              onclick={(event) => event.currentTarget.select()}
+              aria-describedby="invite-help"
+              title="Clique para copiar ou selecione o texto"
+              onclick={copyInvite}
+              onkeydown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void copyInvite();
+                }
+              }}
             />
-            <button onclick={copyInvite}
-              >{copied ? "Link copiado!" : "Copiar convite"}</button
+            <button
+              type="button"
+              class="invite-copy"
+              onclick={copyInvite}
+              aria-label={copied ? "Link copiado" : "Copiar link de convite"}
+              title={copied ? "Link copiado!" : "Copiar link"}
             >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.7"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                {#if copied}
+                  <path d="m5 12 4 4L19 6" />
+                {:else}
+                  <rect x="8" y="8" width="12" height="12" rx="2" />
+                  <path
+                    d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
+                  />
+                {/if}
+              </svg>
+            </button>
           </div>
-          <a class="home-link" href="/">Página inicial</a>
+          <span id="invite-help" class="sr-only"
+            >Clique no link ou pressione Enter para copiar. Você também pode
+            selecionar o texto.</span
+          >
         </section>
       {/if}
+      <SkyScene {night} />
+    </header>
+    <main>
       {#if soundBlocked}<div class="notice sound-notice" role="status">
           O navegador bloqueou o som automático.
           <button onclick={playRooster}>Ativar som</button>

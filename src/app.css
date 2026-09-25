@@ -268,31 +268,86 @@ strong {
   letter-spacing: 2px;
   text-transform: uppercase;
 }
-.room-bar {
+.header-invite {
+  min-width: 0;
+  width: 100%;
+}
+.invite-caption {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 18px;
-  padding: 18px 22px;
-  margin-bottom: 28px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 1.3px;
 }
-.room-bar .eyebrow {
-  margin-bottom: 4px;
+.invite-caption > span:first-child {
+  flex-shrink: 0;
 }
-.room-invite {
+.invite-caption .room-code {
+  font-size: 11px;
+  letter-spacing: 1px;
+  margin-left: 5px;
+}
+.invite-feedback {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--accent);
+  text-align: right;
+}
+.invite-field {
   display: flex;
-  flex: 1;
-  gap: 10px;
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  overflow: hidden;
+  transition: border-color 0.2s;
 }
-.room-invite input {
+.invite-field:hover,
+.invite-field:focus-within,
+.invite-field.copied {
+  border-color: var(--accent);
+}
+.invite-field input {
   min-width: 0;
-  margin: 0;
+  width: 100%;
+  height: 44px;
+  padding: 0 0 0 13px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  user-select: text;
+  -webkit-user-select: text;
 }
-.room-invite button {
-  white-space: nowrap;
+.invite-field input:focus {
+  outline: none;
+}
+.invite-copy {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+}
+.invite-copy:hover:not(:disabled) {
+  background: var(--accent-soft);
+  transform: none;
+  box-shadow: none;
+}
+.invite-copy:focus-visible {
+  outline-offset: -4px;
 }
 .home-link {
   color: var(--accent);
@@ -302,13 +357,6 @@ strong {
 @media (max-width: 760px) {
   .room-options {
     grid-template-columns: 1fr;
-  }
-  .room-invite {
-    flex-basis: 100%;
-    flex-wrap: wrap;
-  }
-  .room-invite input {
-    flex-basis: 100%;
   }
 }
 header {
@@ -1031,8 +1079,7 @@ fieldset {
   margin-bottom: 13px;
 }
 .join-card input,
-.room-options input,
-.room-invite input {
+.room-options input {
   width: 100%;
   background: var(--surface-raised);
   border: 1px solid var(--line);
@@ -1047,8 +1094,7 @@ fieldset {
   margin-bottom: 18px;
 }
 .join-card input:hover,
-.room-options input:hover,
-.room-invite input:hover {
+.room-options input:hover {
   border-color: var(--accent);
 }
 .join-card input::placeholder,
@@ -1256,4 +1302,51 @@ footer span:last-child {
 .city-results summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
+}
+
+/* The room invitation sits between the header copy and the town illustration. */
+.atmosphere.has-invite {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px) minmax(0, 1fr);
+  height: 148px;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.has-invite .sky-scene {
+  width: 100%;
+  max-width: 280px;
+  height: 130px;
+  justify-self: end;
+}
+@media (max-width: 1000px) {
+  .atmosphere.has-invite {
+    grid-template-columns: minmax(0, 1fr) 230px;
+    height: auto;
+    gap: 0 24px;
+    padding: 12px 0 22px;
+  }
+  .has-invite .header-invite {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: 480px;
+    justify-self: center;
+  }
+  .has-invite .sky-scene {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+@media (max-width: 760px) {
+  .atmosphere.has-invite {
+    grid-template-columns: minmax(0, 1fr) 145px;
+    gap: 10px 0;
+    padding: 0 0 18px;
+    margin-bottom: 24px;
+  }
+  .has-invite .sky-scene {
+    height: 110px;
+  }
+  .invite-field input {
+    font-size: 16px;
+  }
 }

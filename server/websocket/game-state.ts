@@ -7,9 +7,11 @@ import type {
   Turn,
   GameResult,
   TimelineEvent,
+  RoleCounts,
+  NightAction,
 } from "../../src/lib/game/types.js";
 import {
-  MIN_PLAYERS,
+  defaultRoleCounts,
   roleDeck,
   SHERIFF_BULLETS,
 } from "../../src/lib/game/roles.js";
@@ -60,6 +62,7 @@ export class Game {
     this.result = {
       winner,
       rounds: this.night,
+      winnerId: winner === "fool" ? this.day!.eliminated : null,
       players: this.players.map((p) => ({
         ...this.publicPlayer(p),
         role: p.role,
@@ -150,6 +153,7 @@ export class Game {
           : [],
     };
   }
+  roleCounts: RoleCounts = defaultRoleCounts();
   adminToken: string | null = null;
   players: Player[] = [];
   status: Status = "waiting";
@@ -157,28 +161,25 @@ export class Game {
   assassinTarget: string | null = null;
   assassinTargets: string[] = [];
   assassinVotes = new Map<string, string>();
-  doctorTarget: string | null = null;
-  bodyguardTarget: string | null = null;
-  seerTarget: string | null = null;
-  detectiveTarget: string | null = null;
-  sheriffTarget: string | null = null;
-  sheriffBullets = SHERIFF_BULLETS;
-  sheriffPassed = false;
+  nightChoices = new Map<string, string | null>();
+  bullets = new Map<string, number>();
+  bulletsAvailable(p: Player) {
+    return this.bullets.get(p.id) ?? SHERIFF_BULLETS;
+  }
   outcome: string | null = null;
   reset() {
     this.players = [];
     this.status = "waiting";
     this.day = null;
     this.night = 0;
-    this.assassinTarget = this.doctorTarget = null;
+    this.assassinTarget = null;
     this.assassinTargets = [];
     this.assassinVotes.clear();
     this.outcome = null;
     this.result = null;
     this.timeline = [];
-    this.bodyguardTarget = this.seerTarget = this.detectiveTarget = this.sheriffTarget = null;
-    this.sheriffBullets = SHERIFF_BULLETS;
-    this.sheriffPassed = false;
+    this.nightChoices.clear();
+    this.bullets.clear();
   }
   join(name: unknown) {
     if (this.status !== "waiting")
@@ -211,9 +212,7 @@ export class Game {
   draw() {
     if (this.status !== "waiting")
       throw new Error("Os papéis já foram sorteados.");
-    if (this.players.length < MIN_PLAYERS)
-      throw new Error("É necessário pelo menos 1 jogador.");
-    const deck = roleDeck(this.players.length);
+    const deck = roleDeck(this.players.length, this.roleCounts);
     for (let i = deck.length - 1; i > 0; i--) {
       const j = randomInt(i + 1);
       [deck[i], deck[j]] = [deck[j], deck[i]];
@@ -232,9 +231,8 @@ export class Game {
       throw new Error("A próxima noite só pode começar depois do dia.");
     this.status = "night";
     this.night++;
-    this.bodyguardTarget = this.seerTarget = this.detectiveTarget = this.sheriffTarget = null;
-    this.sheriffPassed = false;
-    this.assassinTarget = this.doctorTarget = null;
+    this.nightChoices.clear();
+    this.assassinTarget = null;
     this.assassinTargets = [];
     this.assassinVotes.clear();
     this.outcome = null;
@@ -246,7 +244,7 @@ export class Game {
           p.role === "bodyguard" ||
           p.role === "seer" ||
           p.role === "detective" ||
-          (p.role === "sheriff" && this.sheriffBullets > 0)
+          (p.role === "sheriff" && this.bulletsAvailable(p) > 0)
         ? p.role
         : null;
   }
@@ -263,18 +261,8 @@ export class Game {
   }
   chosen(p: Player) {
     return p.role === "assassin"
-      ? this.assassinVotes.get(p.id)
-      : p.role === "doctor"
-        ? this.doctorTarget
-        : p.role === "bodyguard"
-          ? this.bodyguardTarget
-          : p.role === "seer"
-            ? this.seerTarget
-            : p.role === "detective"
-              ? this.detectiveTarget
-              : p.role === "sheriff"
-                ? this.sheriffTarget || this.sheriffPassed
-                : null;
+      ? this.assassinVotes.has(p.id)
+      : this.nightChoices.has(p.id);
   }
   targets(p: Player) {
     return this.players.filter(
@@ -294,20 +282,16 @@ export class Game {
       const targets = [...new Set(this.assassinVotes.values())];
       this.assassinTarget = targets.length === 1 ? targets[0] : null;
     }
-    if (p.role === "doctor") this.doctorTarget = target.id;
-    if (p.role === "bodyguard") this.bodyguardTarget = target.id;
-    if (p.role === "seer") this.seerTarget = target.id;
-    if (p.role === "detective") this.detectiveTarget = target.id;
-    if (p.role === "sheriff") {
-      this.sheriffTarget = target.id;
-      this.sheriffBullets--;
-    }
+    if (p.role !== "assassin") this.nightChoices.set(p.id, target.id);
+    if (p.role === "sheriff")
+      this.bullets.set(p.id, this.bulletsAvailable(p) - 1);
   }
   pass(p: Player) {
     if (p.role !== "sheriff" || !this.eligible(p) || this.chosen(p))
       throw new Error("Você não pode passar esta ação.");
-    this.sheriffPassed = true;
+    this.nightChoices.set(p.id, null);
   }
+
   assassinConflict() {
     return (
       new Set(this.assassinVotes.values()).size > 1 && !this.assassinTarget
@@ -323,20 +307,38 @@ export class Game {
     this.assassinTargets = selectAttacks(votedTargets, this.random);
     this.assassinTarget = this.assassinTargets[0] ?? null;
     const attacks = new Set(this.assassinTargets);
-    if (this.sheriffTarget) attacks.add(this.sheriffTarget);
+    const shooters = this.players.filter(
+      (p) => p.alive && p.role === "sheriff" && this.nightChoices.get(p.id),
+    );
+    for (const shooter of shooters)
+      attacks.add(this.nightChoices.get(shooter.id)!);
+    const protectedTargets = new Set(
+      this.players
+        .filter((p) => p.alive && p.role === "doctor")
+        .map((p) => this.nightChoices.get(p.id)),
+    );
+    const guards = this.players.filter(
+      (p) => p.alive && p.role === "bodyguard",
+    );
     const victims = this.players.filter((p) => p.alive && attacks.has(p.id));
-    const guard = this.players.find((p) => p.alive && p.role === "bodyguard");
     const deaths = new Set<string>();
     for (const victim of victims) {
-      if (victim.id === this.doctorTarget) {
+      if (protectedTargets.has(victim.id)) {
         this.record("night", `${victim.name} foi salvo pelo Médico.`);
-      } else if (guard && victim.id === this.bodyguardTarget) {
-        deaths.add(guard.id);
-        this.record(
-          "night",
-          `${guard.name} se sacrificou para salvar ${victim.name}.`,
+      } else {
+        const protectors = guards.filter(
+          (guard) => this.nightChoices.get(guard.id) === victim.id,
         );
-      } else deaths.add(victim.id);
+        if (protectors.length) {
+          // One sacrifice per attacked person; all night actions remain simultaneous.
+          const guard = protectors[randomInt(protectors.length)];
+          deaths.add(guard.id);
+          this.record(
+            "night",
+            `${guard.name} se sacrificou para salvar ${victim.name}.`,
+          );
+        } else deaths.add(victim.id);
+      }
     }
     this.outcome = "Ninguém morreu durante a noite.";
     const killed = this.players.filter((p) => deaths.has(p.id));
@@ -352,10 +354,10 @@ export class Game {
           .map((p) => p.name)
           .join(" e ")}.`,
       );
-    if (this.sheriffTarget)
+    for (const shooter of shooters)
       this.record(
         "night",
-        `O Xerife disparou em ${this.players.find((p) => p.id === this.sheriffTarget)!.name}.`,
+        `${shooter.name} (Xerife) disparou em ${this.players.find((p) => p.id === this.nightChoices.get(shooter.id))!.name}.`,
       );
     this.record("night", this.outcome);
     if (this.checkWinner()) return;
@@ -374,6 +376,19 @@ export class Game {
   adminView(): AdminView {
     return {
       kind: "admin",
+      roleCounts: { ...this.roleCounts },
+      nightActions: this.players
+        .filter(
+          (p) => p.role && !["assassin", "citizen", "fool"].includes(p.role),
+        )
+        .map((p) => ({
+          playerId: p.id,
+          role: p.role as NightAction["role"],
+          targetId: this.nightChoices.get(p.id) ?? null,
+          passed:
+            this.nightChoices.has(p.id) && this.nightChoices.get(p.id) === null,
+          bulletsAvailable: p.role === "sheriff" ? this.bulletsAvailable(p) : 0,
+        })),
       result: this.result,
       day: this.day
         ? {
@@ -411,20 +426,15 @@ export class Game {
           targetId: this.assassinVotes.get(p.id) ?? null,
         })),
       assassinConflict: this.assassinConflict(),
-      doctorTarget: this.doctorTarget,
-      bodyguardTarget: this.bodyguardTarget,
-      seerTarget: this.seerTarget,
-      detectiveTarget: this.detectiveTarget,
-      sheriffTarget: this.sheriffTarget,
-      sheriffBullets: this.sheriffBullets,
-      sheriffPassed: this.sheriffPassed,
       outcome: this.outcome,
     };
   }
   playerView(p: Player): PlayerView {
     const eligible = this.eligible(p);
-    const seen = this.players.find((t) => t.id === this.seerTarget);
-    const investigated = this.players.find((t) => t.id === this.detectiveTarget);
+    const seen = this.players.find((t) => t.id === this.nightChoices.get(p.id));
+    const investigated = this.players.find(
+      (t) => t.id === this.nightChoices.get(p.id),
+    );
     return {
       kind: "player",
       result: this.result,
@@ -445,15 +455,13 @@ export class Game {
               .map((t) => ({ id: t.id, name: t.name }))
           : [],
       submitted: this.status === "night" && p.alive && !!this.chosen(p),
-      bulletsAvailable: p.role === "sheriff" ? this.sheriffBullets : 0,
+      bulletsAvailable: p.role === "sheriff" ? this.bulletsAvailable(p) : 0,
       vision:
         this.status === "night" && p.role === "seer" && seen?.role
           ? { name: seen.name, role: seen.role }
           : null,
       investigation:
-        this.status === "night" &&
-        p.role === "detective" &&
-        investigated?.role
+        this.status === "night" && p.role === "detective" && investigated?.role
           ? {
               name: investigated.name,
               isAssassin: investigated.role === "assassin",

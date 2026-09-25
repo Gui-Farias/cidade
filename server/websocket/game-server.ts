@@ -1,3 +1,4 @@
+import { parseRoleCounts } from "../../src/lib/game/roles.js";
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Player } from "./game-state.js";
@@ -95,7 +96,7 @@ export function attachGameServer(server: Server, rooms = new RoomManager()) {
           return;
         }
         if (m.type === "create-room" && s?.kind === "lobby") {
-          const room = rooms.create();
+          const room = rooms.create(parseRoleCounts(m.roleCounts));
           rooms.connect(room, ws);
           sessions.set(ws, { kind: "admin", room });
           send(ws, {

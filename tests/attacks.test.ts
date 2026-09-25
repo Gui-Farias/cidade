@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Game, selectAttacks } from "../server/websocket/game-state.js";
-import { roleDeck } from "../src/lib/game/roles.js";
 
 test("Dois alvos: exatamente 40/40/20, sem favorecer votos repetidos", () => {
   const counts = new Map<string, number>();
@@ -58,7 +57,7 @@ test("Ataque duplo aplica proteção e todas as mortes antes de verificar vitór
     );
     const [a, b, doctor, seer, citizen] = game.players;
     assert.throws(() => game.act(doctor, doctor.id));
-    assert.equal(game.doctorTarget, null);
+    assert.equal(game.chosen(doctor), false);
     game.act(a, doctor.id);
     game.act(b, seer.id);
     assert.throws(() => game.wake());

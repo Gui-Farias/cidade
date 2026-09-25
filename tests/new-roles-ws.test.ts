@@ -1,3 +1,4 @@
+import { defaultRoleCounts } from "../src/lib/game/roles.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -50,7 +51,17 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     send({ type: "hello", roomCode, playerToken });
     await wait(() => !!view);
     if (!roomCode) {
-      send({ type: "create-room" });
+      send({
+        type: "create-room",
+        roleCounts: {
+          ...defaultRoleCounts(),
+          assassin: 2,
+          seer: 1,
+          sheriff: 1,
+          bodyguard: 1,
+          fool: 1,
+        },
+      });
       await wait(() => view.kind === "admin");
     }
     return {
@@ -105,7 +116,9 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     await citizen.wait(() => citizen.errors.length > 0);
     assert.equal((citizen.view as PlayerView).action, null);
     sheriff.send({ type: "act", targetId: id(assassin) });
-    await sheriff.wait(() => (sheriff.view as PlayerView).bulletsAvailable === 1);
+    await sheriff.wait(
+      () => (sheriff.view as PlayerView).bulletsAvailable === 1,
+    );
     const reSheriff = await connect(sheriff.token);
     assert.equal((reSheriff.view as PlayerView).bulletsAvailable, 1);
     reSheriff.send({ type: "act", targetId: id(assassin) });
@@ -118,9 +131,21 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       if (r === "detective") p.send({ type: "act", targetId: id(assassin) });
     }
     await admin.wait(() => (admin.view as AdminView).canWake);
-    assert.equal((admin.view as AdminView).bodyguardTarget, id(doctor));
-    assert.equal((admin.view as AdminView).seerTarget, id(fool));
-    assert.equal((admin.view as AdminView).sheriffTarget, id(assassin));
+    assert.equal(
+      (admin.view as AdminView).nightActions.find((a) => a.role === "bodyguard")
+        ?.targetId,
+      id(doctor),
+    );
+    assert.equal(
+      (admin.view as AdminView).nightActions.find((a) => a.role === "seer")
+        ?.targetId,
+      id(fool),
+    );
+    assert.equal(
+      (admin.view as AdminView).nightActions.find((a) => a.role === "sheriff")
+        ?.targetId,
+      id(assassin),
+    );
     admin.send({ type: "wake" });
     await admin.wait(() => (admin.view as AdminView).status === "day");
     now += 80_000;
@@ -129,9 +154,10 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     await admin.wait(() => (admin.view as AdminView).day?.phase === "voting");
     for (const p of living) p.send({ type: "day-vote", targetId: id(fool) });
     for (const p of [...players, admin]) {
-      await p.wait(() =>
-        (p.view.kind === "player" || p.view.kind === "admin") &&
-        p.view.result !== null,
+      await p.wait(
+        () =>
+          (p.view.kind === "player" || p.view.kind === "admin") &&
+          p.view.result !== null,
       );
       assert.equal((p.view as PlayerView | AdminView).result!.winner, "fool");
     }
