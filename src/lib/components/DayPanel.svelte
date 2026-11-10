@@ -5,6 +5,8 @@
     ClientMessage,
     Target,
   } from "$lib/game/types";
+  import GameGlyph from "./GameGlyph.svelte";
+  import { avatarForPlayer } from "$lib/ui/avatars";
   let {
     day,
     admin = null,
@@ -12,6 +14,8 @@
     alive = false,
     connected,
     send,
+    sending = false,
+    onVote,
   }: {
     day: DayView;
     admin?: AdminDayView | null;
@@ -19,6 +23,8 @@
     alive?: boolean;
     connected: boolean;
     send: (message: ClientMessage) => void;
+    sending?: boolean;
+    onVote?: (targetId: string | null, targetName: string | null) => void;
   } = $props();
   let selected = $state("");
   const phase = $derived(day.phase);
@@ -28,11 +34,12 @@
   });
   const name = (id: string | null) =>
     id === null
-      ? "Não votou nesta rodada"
+      ? "Prefiro não votar"
       : players.find((p) => p.id === id)?.name || id;
 </script>
 
 <section class="panel day-panel">
+  {#if !admin && day.phase === "voting"}<span class="action-medallion"><GameGlyph name="vote" size={29} /></span>{/if}
   <p class="eyebrow">☼ A CIDADE ACORDOU</p>
   {#if day.phase === "discussion"}
     <h2>Hora de conversar.</h2>
@@ -53,56 +60,42 @@
       aria-label="Tempo restante de discussão"
     ></progress>
     <p class="hint">
-      {day.extensionsRemaining > 0
-        ? `São permitidas apenas 2 prorrogações de 30 segundos. Restam ${day.extensionsRemaining}. Ao terminar, a cidade decide se precisa de mais tempo.`
-        : "As duas prorrogações foram usadas. Ao terminar este tempo, a votação começa automaticamente."}
+      A votação começa ao fim de 1 minuto e 30 segundos ou quando o Narrador encerrar a conversa.
     </p>
-  {:else if day.phase === "decision"}
-    <h2>Mais tempo ou votação?</h2>
-    <p>A maioria decide. Em empate, começa a votação da cidade.</p>
-    <p class="hint">
-      Restam {day.extensionsRemaining} de 2 prorrogações de 30 segundos.
-    </p>
-    {#if alive && !admin && !day.submitted}
-      <div class="turns">
-        <button
-          disabled={!connected || day.extensionsRemaining === 0}
-          onclick={() => send({ type: "day-choice", choice: "extend" })}
-          >Conversar mais 30 segundos</button
-        ><button
-          class="primary"
-          disabled={!connected}
-          onclick={() => send({ type: "day-choice", choice: "vote" })}
-          >Ir para votação</button
-        >
-      </div>
-    {:else if !admin}<div class="notice">
-        {day.submitted
-          ? "Escolha confirmada. Aguarde os demais."
-          : "Acompanhe a decisão dos jogadores vivos."}
-      </div>{/if}
   {:else if day.phase === "voting"}
     <h2>Quem a cidade vai eliminar?</h2>
-    <p>
-      Cada jogador vivo tem um voto. Somente o Narrador vê os votos e o
-      resultado.
-    </p>
+    <p>Escolha em segredo. Só o Narrador vê os votos.</p>
+    {#if admin}
+      <div
+        class="day-clock"
+        role="timer"
+        aria-label={`${day.remaining} segundos de votação`}
+      >
+        {Math.floor(day.remaining / 60)
+          .toString()
+          .padStart(2, "0")}:{(day.remaining % 60).toString().padStart(2, "0")}
+      </div>
+      <progress
+        class="day-progress"
+        max={day.duration}
+        value={day.remaining}
+        aria-label="Tempo restante de votação"
+      ></progress>
+    {/if}
     <p class="hint">
-      Você também pode se abster. A abstenção não conta contra ninguém; se todos
-      se abstiverem, a próxima noite começa sem eliminação. Em caso de empate,
-      o sorteio escolhe automaticamente entre os mais votados.
+      Sem voto confirmado, o jogo registra “Prefiro não votar”. Empates são resolvidos por sorteio.
     </p>
     {#if alive && !admin && !day.submitted}
       <form
         onsubmit={(e) => {
           e.preventDefault();
-          send({
-            type: "day-vote",
-            targetId: selected === "abstain" ? null : selected,
-          });
+          if (sending || !selected) return;
+          const targetId = selected === "abstain" ? null : selected;
+          if (onVote) onVote(targetId, day.targets.find((target) => target.id === targetId)?.name ?? null);
+          else send({ type: "day-vote", targetId });
         }}
       >
-        <fieldset disabled={!connected}>
+        <fieldset disabled={!connected || sending}>
           <legend class="sr-only">Escolha quem eliminar</legend>
           <div class="targets">
             {#each day.targets as target}<label
@@ -112,7 +105,7 @@
                   name="city-target"
                   value={target.id}
                   bind:group={selected}
-                />{target.name}</label
+              /><img class="target-avatar" src={avatarForPlayer(target.id)} alt="" />{target.name}</label
               >{/each}
             <label class:selected={selected === "abstain"}
               ><input
@@ -120,12 +113,12 @@
                 name="city-target"
                 value="abstain"
                 bind:group={selected}
-              />Não votar nesta rodada</label
+              />Prefiro não votar</label
             >
           </div>
-          <button class="primary full" disabled={!selected}
-            >Confirmar voto secreto</button
-          >
+          <div class="action-footer"><button class="primary full" disabled={!selected || sending}
+              ><GameGlyph name={sending ? "hourglass" : "vote"} size={17} />{sending ? "Registrando voto..." : "Confirmar voto secreto"}</button
+            ></div>
         </fieldset>
       </form>
     {:else if !admin}<div class="notice">

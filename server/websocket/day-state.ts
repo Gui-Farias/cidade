@@ -1,13 +1,13 @@
-import type { DayPhase, DayChoice, Target } from "../../src/lib/game/types.js";
-import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
+import type { DayPhase, Target } from "../../src/lib/game/types.js";
 import { randomInt } from "node:crypto";
+
+export const DISCUSSION_SECONDS = 90;
+export const VOTING_SECONDS = 30;
 
 export class DayState {
   phase: DayPhase = "discussion";
   deadline: number;
-  duration = 80;
-  extensions = 0;
-  decisions = new Map<string, DayChoice>();
+  duration = DISCUSSION_SECONDS;
   votes = new Map<string, string | null>();
   eliminated: string | null = null;
   tiebreaker = false;
@@ -16,42 +16,37 @@ export class DayState {
     now: number,
     private random: (max: number) => number = randomInt,
   ) {
-    this.deadline = now + 80_000;
+    this.deadline = now + DISCUSSION_SECONDS * 1000;
   }
   remaining(now: number) {
-    return this.phase === "discussion"
+    return this.phase === "discussion" || this.phase === "voting"
       ? Math.max(0, Math.ceil((this.deadline - now) / 1000))
       : 0;
   }
+  startVoting(now: number) {
+    if (this.phase !== "discussion")
+      throw new Error("A conversa já terminou.");
+    this.phase = "voting";
+    this.duration = VOTING_SECONDS;
+    this.deadline = now + VOTING_SECONDS * 1000;
+  }
   tick(now: number) {
-    if (this.phase !== "discussion" || now < this.deadline) return false;
-    this.phase = this.extensions >= MAX_DAY_EXTENSIONS ? "voting" : "decision";
-    return true;
-  }
-  choose(id: string, choice: unknown, now: number) {
-    this.validate(id, "decision");
-    if (this.decisions.has(id))
-      throw new Error("Você já confirmou sua escolha.");
-    if (choice !== "extend" && choice !== "vote")
-      throw new Error("Escolha inválida.");
-    if (choice === "extend" && this.extensions >= MAX_DAY_EXTENSIONS)
-      throw new Error("As duas prorrogações já foram utilizadas.");
-    this.decisions.set(id, choice);
-    if (this.decisions.size === this.voters.length) {
-      const extensions = [...this.decisions.values()].filter(
-        (v) => v === "extend",
-      ).length;
-      if (extensions > this.voters.length / 2) {
-        this.extensions++;
-        this.phase = "discussion";
-        this.duration = 30;
-        this.deadline = now + 30_000;
-        this.decisions.clear();
-      } else this.phase = "voting";
+    let changed = false;
+    if (this.phase === "discussion" && now >= this.deadline) {
+      this.startVoting(this.deadline);
+      changed = true;
     }
+    if (this.phase === "voting" && now >= this.deadline) {
+      for (const voter of this.voters)
+        if (!this.votes.has(voter.id)) this.votes.set(voter.id, null);
+      this.completeVoting();
+      changed = true;
+    }
+    return changed;
   }
-  vote(id: string, target: unknown) {
+  vote(id: string, target: unknown, now: number) {
     this.validate(id, "voting");
+    if (now >= this.deadline) throw new Error("O tempo de votação terminou.");
     if (this.votes.has(id)) throw new Error("Seu voto já foi confirmado.");
     if (
       target !== null &&
@@ -59,14 +54,15 @@ export class DayState {
     )
       throw new Error("Escolha um jogador vivo.");
     this.votes.set(id, target);
-    if (this.votes.size === this.voters.length) {
-      const leaders = this.leaders();
-      this.tiebreaker = leaders.length > 1;
-      this.eliminated = leaders.length
-        ? leaders[this.random(leaders.length)]
-        : null;
-      this.phase = "completed";
-    }
+    if (this.votes.size === this.voters.length) this.completeVoting();
+  }
+  private completeVoting() {
+    const leaders = this.leaders();
+    this.tiebreaker = leaders.length > 1;
+    this.eliminated = leaders.length
+      ? leaders[this.random(leaders.length)]
+      : null;
+    this.phase = "completed";
   }
   tally() {
     const counts = new Map<string, number>();
@@ -81,9 +77,8 @@ export class DayState {
     return tally.filter((t) => t.count === tally[0]?.count).map((t) => t.id);
   }
   pending() {
-    const ballots = this.phase === "decision" ? this.decisions : this.votes;
-    return this.phase === "decision" || this.phase === "voting"
-      ? this.voters.filter((p) => !ballots.has(p.id))
+    return this.phase === "voting"
+      ? this.voters.filter((p) => !this.votes.has(p.id))
       : [];
   }
   validate(id: string, phase: DayPhase) {

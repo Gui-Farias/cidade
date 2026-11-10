@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ClientMessage, ConfigurableRole } from "$lib/game/types";
+  import { draggable } from "$lib/ui/draggable";
   import {
     roles,
     MIN_PLAYERS,
@@ -52,7 +53,8 @@
   }
 </script>
 
-<div class="role-setup">
+<div class="role-setup" use:draggable={{ handle: ".action-drag-handle" }}>
+  <div class="action-drag-handle" aria-hidden="true"><span class="drag-grip">⠿</span> Arraste para mover</div>
   <button class="setup-back" disabled={creating} onclick={back}>← Voltar</button
   >
   <div class="page-heading">

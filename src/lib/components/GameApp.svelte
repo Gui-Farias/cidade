@@ -5,28 +5,82 @@
   import { connectGame } from "$lib/game/websocket";
   import NarratorPanel from "$lib/components/NarratorPanel.svelte";
   import GameEnding from "$lib/components/GameEnding.svelte";
-  import SkyScene from "$lib/components/SkyScene.svelte";
+  import CityScenery from "$lib/components/CityScenery.svelte";
+  import { visibleResidents } from "$lib/scenery/village";
   import PlayerPanel from "$lib/components/PlayerPanel.svelte";
   import RoomLobby from "$lib/components/RoomLobby.svelte";
+  import GameGlyph from "$lib/components/GameGlyph.svelte";
+  import crest from "$lib/assets/ui/crest.webp";
+  import { draggable } from "$lib/ui/draggable";
   import "../../app.css";
+  import "../../game-ui.css";
+  import "../../game-reference.css";
   let { roomCode }: { roomCode?: string } = $props();
   let view = $state<View | null>(null);
   let connected = $state(false);
   let error = $state("");
+  let actionErrorId = $state(0);
+  let actionAck = $state<{ serial: number; action: "act" | "pass" | "day-vote" } | null>(null);
+  let actionAckSerial = 0;
   let name = $state("");
   let rooster = $state<HTMLAudioElement>();
   let previousStatus = $state<Status | null>(null);
   let soundBlocked = $state(false);
+  let soundDismissed = $state(false);
   let inviteLink = $state("");
   let copied = $state(false);
   let inviteFeedback = $state("");
+  let toast = $state("");
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  let toastTimer: ReturnType<typeof setTimeout> | undefined;
   const showInvite = $derived(!!roomCode && !!view && view.kind !== "missing");
   let creating = $state(false);
   const gameView = $derived(
     view?.kind === "admin" || view?.kind === "player" ? view : null,
   );
+  const sceneryPlayers = $derived(visibleResidents(gameView));
   const night = $derived(gameView?.status === "night");
+  const phaseKind = $derived(
+    gameView?.result ? "result" : gameView?.status === "night" ? "night" :
+    gameView?.status === "day" && gameView.day?.phase === "voting" ? "voting" :
+    gameView?.status === "day" ? "discussion" : "waiting",
+  );
+  const phaseGlyph = $derived(
+    phaseKind === "night" ? "moon" : phaseKind === "discussion" ? "sun" :
+    phaseKind === "voting" ? "vote" : "hourglass",
+  );
+  const phaseSubtitle = $derived(
+    phaseKind === "night" ? "Escolha sua ação" :
+    phaseKind === "discussion" ? "Discussão da cidade" :
+    phaseKind === "voting" ? "Escolha um jogador" : "Aguardando jogadores",
+  );
+  const phaseLabel = $derived.by(() => {
+    if (!gameView) return "";
+    if (gameView.result) return "Fim de partida";
+    if (gameView.status === "waiting") return "Preparação";
+    if (gameView.status === "night")
+      return gameView.kind === "admin" ? `Noite ${gameView.night}` : "Noite";
+    return gameView.day?.phase === "voting" ? "Votação" : "Conversa";
+  });
+  const phaseTime = $derived(
+    gameView?.status === "day" &&
+    (gameView.day?.phase === "discussion" || gameView.day?.phase === "voting")
+      ? gameView.day.remaining
+      : null,
+  );
+  const pendingCount = $derived(
+    gameView?.kind === "admin"
+      ? gameView.status === "night"
+        ? gameView.pendingPlayers.length
+        : gameView.day?.phase === "voting"
+          ? gameView.day.pending.length
+          : 0
+      : gameView?.kind === "player"
+        ? gameView.status === "day"
+          ? gameView.day?.phase === "voting" && !gameView.day.submitted && gameView.player.alive ? 1 : 0
+          : gameView.action && !gameView.submitted ? 1 : 0
+        : 0,
+  );
   const profile = $derived(
     view?.kind === "player" ? view.player.role || "citizen" : "narrator",
   );
@@ -36,11 +90,30 @@
     if (message.type === "create-room") creating = true;
     client?.send(message);
   }
+  function announce(message: string) {
+    toast = message;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (toast = ""), 3300);
+  }
+  function announceState(next: View) {
+    const previous = view;
+    if (previous?.kind === "admin" && next.kind === "admin") {
+      if (next.players.length > previous.players.length) announce("Uma pessoa entrou na cidade.");
+      else if (next.players.length < previous.players.length) announce("Uma pessoa deixou a cidade.");
+    }
+    if (previous?.kind === next.kind && "status" in previous && "status" in next && previous.status !== next.status) {
+      if (next.status === "day") announce("A cidade acordou. Hora de conversar.");
+      if (next.status === "night" && previous.status === "day") announce("A noite começou.");
+    }
+    if (previous?.kind === next.kind && "day" in previous && "day" in next &&
+      previous.day?.phase === "discussion" && next.day?.phase === "voting")
+      announce("A votação começou.");
+  }
   async function copyInvite() {
     try {
       await navigator.clipboard.writeText(inviteLink);
       copied = true;
-      inviteFeedback = "Link copiado!";
+      inviteFeedback = "Convite copiado!";
       clearTimeout(copyTimer);
       copyTimer = setTimeout(() => {
         copied = false;
@@ -49,7 +122,8 @@
     } catch {
       clearTimeout(copyTimer);
       copied = false;
-      inviteFeedback = "Selecione o link para copiar.";
+      inviteFeedback = "Não foi possível copiar o convite.";
+      copyTimer = setTimeout(() => (inviteFeedback = ""), 3500);
     }
   }
   function playRooster() {
@@ -75,7 +149,12 @@
     client = connectGame(
       roomCode,
       (message) => {
-        if (message.type === "state") view = message.view;
+        if (message.type === "state") {
+          announceState(message.view);
+          view = message.view;
+        }
+        if (message.type === "action-confirmed")
+          actionAck = { serial: ++actionAckSerial, action: message.action };
         if (message.type === "identity" && !roomCode)
           void goto(`/sala/${message.roomCode}`, { replaceState: true });
         if (message.type === "room-closed") {
@@ -84,6 +163,7 @@
         }
         if (message.type === "error") {
           error = message.message;
+          actionErrorId++;
           creating = false;
         }
       },
@@ -93,12 +173,14 @@
       },
       (message) => {
         error = message;
+        actionErrorId++;
         creating = false;
       },
     );
     return () => {
       client?.close();
       clearTimeout(copyTimer);
+      clearTimeout(toastTimer);
     };
   });
 </script>
@@ -119,96 +201,64 @@
   /></svelte:head
 >
 <div
-  class="app-theme"
+  class="app-theme game-ui"
   data-time={night ? "night" : "day"}
+  data-phase={phaseKind}
   data-profile={profile}
 >
+  <CityScenery
+    players={sceneryPlayers}
+    phase={gameView?.status ?? "waiting"}
+    nightReady={gameView?.kind === "admin" ? gameView.canWake : gameView?.kind === "player" ? gameView.nightReady : false}
+  />
+  <div class="scene-shade" aria-hidden="true"></div>
   <div class="shell">
-    <header class="atmosphere" class:has-invite={showInvite}>
-      <div class="atmosphere-copy">
-        <span class="sky-kicker">UMA CIDADE, MUITOS SEGREDOS</span>
-        <p>
-          {night
-            ? "A noite guarda suas escolhas."
-            : "Sob a luz, novas suspeitas."}
-        </p>
-        <span class="sky-caption"
-          >{night
-            ? "A cidade dorme. Siga seu instinto."
-            : "Encontre sua turma. Entre na história."}</span
-        >
+    <header class="hud" class:pre-game={!gameView}>
+      <div class="hud-brand">
+        <img class="brand-crest" src={crest} alt="" aria-hidden="true" />
+        <span><strong>CIDADE DORME</strong><small>Uma vila, muitos segredos.</small></span>
       </div>
-      {#if showInvite}
-        <section class="header-invite" aria-label="Convite da sala">
-          <div class="invite-caption">
-            <span>SALA <strong class="room-code">{roomCode}</strong></span>
-            <span class="invite-feedback" role="status">{inviteFeedback}</span>
-          </div>
-          <div class="invite-field" class:copied>
-            <label for="invite-link" class="sr-only">Link de convite</label>
-            <input
-              id="invite-link"
-              readonly
-              value={inviteLink}
-              aria-describedby="invite-help"
-              title="Clique para copiar ou selecione o texto"
-              onclick={copyInvite}
-              onkeydown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void copyInvite();
-                }
-              }}
-            />
-            <button
-              type="button"
-              class="invite-copy"
-              onclick={copyInvite}
-              aria-label={copied ? "Link copiado" : "Copiar link de convite"}
-              title={copied ? "Link copiado!" : "Copiar link"}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.7"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                {#if copied}
-                  <path d="m5 12 4 4L19 6" />
-                {:else}
-                  <rect x="8" y="8" width="12" height="12" rx="2" />
-                  <path
-                    d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"
-                  />
-                {/if}
-              </svg>
-            </button>
-          </div>
-          <span id="invite-help" class="sr-only"
-            >Clique no link ou pressione Enter para copiar. Você também pode
-            selecionar o texto.</span
-          >
-        </section>
+      {#if gameView && !gameView.result}
+        <div class="hud-phase" aria-live="off">
+          <span class="phase-medallion"><GameGlyph name={phaseGlyph} size={23} /></span>
+          <span class="phase-copy"><strong>{phaseLabel}</strong><small>{phaseSubtitle}</small></span>
+          {#if phaseTime !== null}<strong class="hud-timer" role="timer" aria-label={`${phaseTime} segundos restantes`}>
+            {Math.floor(phaseTime / 60).toString().padStart(2, "0")}:{(phaseTime % 60).toString().padStart(2, "0")}
+          </strong>{/if}
+          {#if pendingCount}<span class="pending-indicator" aria-label={`${pendingCount} ação ou ações pendentes`}>{pendingCount} pendente{pendingCount > 1 ? "s" : ""}</span>{/if}
+          {#if phaseTime !== null && gameView?.day}<span class="phase-track" aria-hidden="true"><span style:width={`${(phaseTime / gameView.day.duration) * 100}%`}></span></span>{/if}
+        </div>
       {/if}
-      <SkyScene {night} />
+      <div class="hud-right">
+        {#if showInvite}
+          <div class="invite-anchor">
+            <button type="button" class="room-code-toggle" class:copied aria-label={`Copiar link de convite da sala ${roomCode}`} title="Copiar link de convite" onclick={copyInvite}>
+              <GameGlyph name="users" size={20} /><span class="room-code-copy"><small>SALA</small><strong>{roomCode}</strong></span><GameGlyph name={copied ? "check" : "copy"} size={16} />
+            </button>
+            {#if inviteFeedback}<span class="invite-feedback" role="status"><GameGlyph name={copied ? "check" : "spark"} size={15} />{inviteFeedback}</span>{/if}
+          </div>
+        {/if}
+        <span class="connection-status" class:online={connected} role="status" aria-label={connected ? "Conectado" : "Offline"} title={connected ? "Conectado" : "Offline"}>
+          <i></i><span>{connected ? "Conectado" : "Offline"}{#if gameView?.kind === "admin"}<small>{gameView.players.filter((player) => player.connected).length} jogadores</small>{/if}</span>
+        </span>
+      </div>
     </header>
-    <main>
-      {#if soundBlocked}<div class="notice sound-notice" role="status">
+    <main class="game-main" data-screen={gameView?.result ? "ending" : (view?.kind ?? "loading")}>
+      {#if soundBlocked && !soundDismissed}<div class="notice sound-notice" role="status" use:draggable={{ handle: ".notice-drag-handle" }}>
+          <span class="notice-drag-handle" aria-hidden="true" title="Arraste para mover">⠿</span>
           O navegador bloqueou o som automático.
           <button onclick={playRooster}>Ativar som</button>
+          <button type="button" class="sound-dismiss" aria-label="Dispensar aviso de som" onclick={() => (soundDismissed = true)}>×</button>
         </div>{/if}
-      {#if error}<div class="error" role="alert">
+      {#if error}<div class="error" role="alert" use:draggable={{ handle: ".notice-drag-handle" }}>
+          <span class="notice-drag-handle" aria-hidden="true" title="Arraste para mover">⠿</span>
           {error}<button
             class="dismiss"
             onclick={() => (error = "")}
             aria-label="Fechar aviso">×</button
           >
-        </div>{/if}{#if !connected && view}<div class="notice" role="status">
+        </div>{/if}{#if !connected && view}<div class="notice" role="status" use:draggable={{ handle: ".notice-drag-handle" }}>
+          <span class="notice-drag-handle" aria-hidden="true" title="Arraste para mover">⠿</span>
           Reconectando ao servidor… Suas ações estarão disponíveis quando a
           conexão voltar.
         </div>{/if}
@@ -222,7 +272,8 @@
           {creating}
           {send}
         />
-      {:else if view.kind === "missing"}<section class="panel missing-room">
+      {:else if view.kind === "missing"}<section class="panel missing-room" use:draggable={{ handle: ".action-drag-handle" }}>
+          <div class="action-drag-handle" aria-hidden="true"><span class="drag-grip">⠿</span> Arraste para mover</div>
           <p class="eyebrow">SALA INDISPONÍVEL</p>
           <h1>Essa cidade não está aqui.</h1>
           <p>
@@ -244,8 +295,9 @@
           {send}
           {connected}
         />
-      {:else if view.kind === "player"}<PlayerPanel {view} {send} {connected} />
-      {:else}<div class="join-layout">
+      {:else if view.kind === "player"}<PlayerPanel {view} {send} {connected} {actionErrorId} {actionAck} />
+      {:else}<div class="join-layout" use:draggable={{ handle: ".action-drag-handle" }}>
+          <div class="action-drag-handle" aria-hidden="true"><span class="drag-grip">⠿</span> Arraste para mover</div>
           <p class="eyebrow">QUANDO A NOITE CAI</p>
           <h1>Todos têm<br />algo a esconder<span class="accent">.</span></h1>
           <p>Entre na chamada. Encontre seu lugar na cidade.</p>
@@ -278,10 +330,6 @@
           </section>
         </div>{/if}
     </main>
-    <footer>
-      <span>CIDADE DORME</span>
-      <span>#guiFariasTheFirstOfHisName</span>
-      <span>#justiceForTinkerbell</span>
-    </footer>
+    {#if toast}<div class="game-toast" class:success={toast.includes("registrad") || toast.includes("confirmad")} role="status"><span class="toast-icon"><GameGlyph name={toast.includes("registrad") || toast.includes("confirmad") ? "check" : "spark"} size={18} /></span>{toast}</div>{/if}
   </div>
 </div>

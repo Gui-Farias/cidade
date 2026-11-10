@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { once } from "node:events";
 import { WebSocket } from "ws";
 import { attachGameServer } from "../server/websocket/game-server.js";
+import { DayState } from "../server/websocket/day-state.js";
 import {
   RoomManager,
   EMPTY_ROOM_TTL_MS,
@@ -103,6 +104,35 @@ async function fixture(rooms = new RoomManager()) {
   };
 }
 
+test("Só o Narrador pode antecipar a votação, com 30 segundos novos para todos", async (t) => {
+  let now = 5_000;
+  const f = await fixture(new RoomManager(() => now));
+  t.after(() => f.close());
+  const admin = await f.createRoom({ ...defaultRoleCounts(), assassin: 1 });
+  const roomCode = admin.identity.roomCode;
+  const players: Awaited<ReturnType<typeof f.join>>[] = [];
+  for (const name of ["Ana", "Bia", "Caio", "Dani"])
+    players.push(await f.join(roomCode, name));
+  const guest = await f.connect({ roomCode });
+  const game = f.rooms.get(roomCode)!.game;
+  game.status = "day";
+  game.day = new DayState(game.players.map(({ id, name }) => ({ id, name })), now);
+  await players[0].reject({ type: "start-voting" });
+  await guest.reject({ type: "start-voting" });
+  assert.equal(game.day.phase, "discussion");
+
+  admin.send({ type: "start-voting" });
+  await admin.wait(() => (admin.view as AdminView).day?.phase === "voting");
+  await players[0].wait(() => (players[0].view as PlayerView).day?.phase === "voting");
+  assert.equal(game.day.remaining(now), 30);
+  assert.equal((players[0].view as PlayerView).day?.remaining, 30);
+  await admin.reject({ type: "start-voting" });
+  now = 34_999;
+  players[0].send({ type: "day-vote", targetId: game.players[1].id });
+  await players[0].wait(() => (players[0].view as PlayerView).day?.submitted === true);
+  assert.equal(game.day.phase, "voting");
+});
+
 test("Duas salas com 11 jogadores isolam papéis, votos, timers, tokens e fechamento", async (t) => {
   let now = 0;
   const f = await fixture(new RoomManager(() => now));
@@ -180,11 +210,10 @@ test("Duas salas com 11 jogadores isolam papéis, votos, timers, tokens e fecham
   const assassinA = await night(a, playersA);
   assert.equal(roomB.game.assassinVotes.size, 0);
   assert(roomA.game.players.every((p) => p.alive));
-  now = 80_000;
-  for (const p of playersA) p.send({ type: "day-choice", choice: "vote" });
+  now = 90_000;
   await a.wait(() => (a.view as AdminView).day?.phase === "voting");
   await night(b, playersB);
-  assert.equal((b.view as AdminView).day!.remaining, 80);
+  assert.equal((b.view as AdminView).day!.remaining, 90);
   await playersA[0].reject({ type: "day-vote", targetId: id(playersB[0]) });
   for (const p of playersA)
     p.send({ type: "day-vote", targetId: id(assassinA) });

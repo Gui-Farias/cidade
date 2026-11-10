@@ -57,10 +57,8 @@ function setup(roll = 0) {
     game.wake();
   }
   function vote(target: string) {
-    now += 80_000;
+    now += 90_000;
     game.tick();
-    for (const p of game.players.filter((p) => p.alive))
-      game.dayChoice(p, "vote");
     for (const p of game.players.filter((p) => p.alive))
       game.dayVote(p, target);
   }
@@ -246,8 +244,7 @@ test("Rei Louco vence quando é sorteado em empate; proteção não impede elimi
   g.night({ attacks: [g.fool.id], protect: g.fool.id, guard: g.fool.id });
   assert.equal(g.fool.alive, true);
   // Advance the real day state to the public voting phase.
-  g.game.day!.tick(80_000);
-  for (const p of g.game.players) g.game.dayChoice(p, "vote");
+  g.game.day!.tick(90_000);
   g.game.players.forEach((p, i) =>
     g.game.dayVote(p, i < 4 ? g.fool.id : i < 8 ? g.citizen.id : g.a.id),
   );
