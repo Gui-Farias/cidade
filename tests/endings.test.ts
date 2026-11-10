@@ -33,10 +33,8 @@ function setup(count: number) {
     game.wake();
   }
   function voting() {
-    now += 80_000;
+    now += 90_000;
     game.tick();
-    for (const p of game.players.filter((p) => p.alive))
-      game.dayChoice(p, "vote");
   }
   return { game, assassin, doctor, night, voting };
 }
@@ -70,7 +68,7 @@ test("Morte noturna em paridade encerra; proteção mantém a partida", () => {
   assert.equal(killed.game.tick(), false);
   assert.throws(() => killed.game.wake());
   assert.throws(() => killed.game.act(killed.assassin, killed.doctor!.id));
-  assert.throws(() => killed.game.dayChoice(killed.assassin, "vote"));
+  assert.throws(() => killed.game.dayVote(killed.assassin, killed.doctor!.id));
   assert.throws(() => killed.game.join("Tarde"));
 });
 

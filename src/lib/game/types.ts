@@ -1,11 +1,8 @@
-export type DayPhase = "discussion" | "decision" | "voting" | "completed";
-export type DayChoice = "extend" | "vote";
-export const MAX_DAY_EXTENSIONS = 2;
+export type DayPhase = "discussion" | "voting" | "completed";
 export type DayView = {
   phase: DayPhase;
   remaining: number;
   duration: number;
-  extensionsRemaining: number;
   submitted: boolean;
   targets: Target[];
 };
@@ -53,6 +50,7 @@ export type GameResult = {
 export type PublicPlayer = {
   id: string;
   name: string;
+  sceneSlot: number;
   alive: boolean;
   connected: boolean;
 };
@@ -81,6 +79,8 @@ export type PlayerView = {
   day: DayView | null;
   status: Status;
   player: PublicPlayer & { role: Role | null };
+  players: PublicPlayer[];
+  nightReady: boolean;
   action: { turn: Turn; targets: Target[] } | null;
   submitted: boolean;
   partners: Target[];
@@ -96,6 +96,7 @@ export type View =
   | { kind: "missing" };
 export type ServerMessage =
   | { type: "state"; view: View }
+  | { type: "action-confirmed"; action: "act" | "pass" | "day-vote" }
   | {
       type: "identity";
       roomCode: string;
@@ -119,8 +120,8 @@ export type ClientMessage =
   | { type: "close-room" }
   | { type: "restart" }
   | { type: "expel-player"; playerId: string }
-  | { type: "day-choice"; choice: DayChoice }
   | { type: "day-vote"; targetId: string | null }
+  | { type: "start-voting" }
   | { type: "wake" }
   | { type: "pass" }
   | { type: "act"; targetId: string };

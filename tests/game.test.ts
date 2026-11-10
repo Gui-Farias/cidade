@@ -121,10 +121,9 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     const [citizen] = byRole("citizen");
     const id = (p: typeof citizen) => (p.view as PlayerView).player.id;
     async function finishDay(adminClient: typeof admin) {
-      assert.equal((adminClient.view as AdminView).day!.remaining, 80);
-      now += 80_000;
+      assert.equal((adminClient.view as AdminView).day!.remaining, 90);
+      now += 90_000;
       const living = people.filter((p) => (p.view as PlayerView).player.alive);
-      for (const p of living) p.send({ type: "day-choice", choice: "vote" });
       await adminClient.wait(
         () => (adminClient.view as AdminView).day?.phase === "voting",
       );
@@ -145,9 +144,10 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
     }
 
     for (const p of people) {
-      assert(!("players" in p.view));
       assert(!JSON.stringify(p.view).includes(adminToken));
-      assert(!("token" in (p.view as PlayerView).player));
+      const visible = p.view as unknown as PlayerView;
+      assert(!("token" in visible.player));
+      assert(visible.players.every((other) => !("role" in other) && !("token" in other)));
     }
     const guest = await client();
     assert.deepEqual(guest.view, { kind: "guest", closed: true });
@@ -286,8 +286,7 @@ test("Fluxo real: identidade, sigilo, ações, proteção, morte e reconexão", 
       (p) =>
         (reAdmin.view as AdminView).players.find((t) => t.id === id(p))!.alive,
     );
-    now += 80_000;
-    for (const p of survivors) p.send({ type: "day-choice", choice: "vote" });
+    now += 90_000;
     await reAdmin.wait(
       () => (reAdmin.view as AdminView).day?.phase === "voting",
     );
@@ -328,6 +327,8 @@ test("Votos iguais, reconexão de estado e nova noite", async () => {
   const assassins = players.filter((p) => p.role === "assassin");
   const target = players.find((p) => p.role === "doctor")!;
   assert.equal(game.pendingPlayers().length, 4);
+  assert.equal(game.playerView(target).players.length, players.length);
+  assert.equal(game.playerView(target).nightReady, false);
   game.act(assassins[0], target.id);
   assert.equal(game.playerView(assassins[0]).submitted, true);
   assert.equal(game.playerView(assassins[1]).submitted, false);
@@ -343,11 +344,12 @@ test("Votos iguais, reconexão de estado e nova noite", async () => {
   assert.throws(() => game.wake(), /Aguarde todos/);
   game.act(target, seer.id);
   assert.equal(game.adminView().canWake, true);
+  assert.equal(game.playerView(target).nightReady, true);
   game.wake();
+  assert.equal(game.playerView(target).nightReady, false);
   assert.equal(target.alive, false);
-  now += 80_000;
+  now += 90_000;
   game.tick();
-  for (const p of players.filter((p) => p.alive)) game.dayChoice(p, "vote");
   for (const p of players.filter((p) => p.alive))
     game.dayVote(p, assassins[0].id);
   assert.equal(game.assassinVotes.size, 0);

@@ -35,10 +35,8 @@ function setup(overrides: Partial<RoleCounts> = {}, citizens = 3) {
     game.wake();
   }
   function vote(target: string | null = null) {
-    now += 80_000;
+    now += 90_000;
     game.tick();
-    for (const p of game.players.filter((p) => p.alive))
-      game.dayChoice(p, "vote");
     for (const p of game.players.filter((p) => p.alive))
       game.dayVote(p, target);
   }

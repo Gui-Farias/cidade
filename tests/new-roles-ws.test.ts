@@ -30,6 +30,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     let view: View;
     let token = playerToken;
     const errors: string[] = [];
+    const confirmations: Array<"act" | "pass" | "day-vote"> = [];
     ws.on("message", (raw) => {
       const message: ServerMessage = JSON.parse(raw.toString());
       if (message.type === "state") view = message.view;
@@ -38,6 +39,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
         roomCode = message.roomCode;
       }
       if (message.type === "error") errors.push(message.message);
+      if (message.type === "action-confirmed") confirmations.push(message.action);
     });
     const wait = async (predicate: () => boolean) => {
       const deadline = Date.now() + 3000;
@@ -69,6 +71,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       send,
       wait,
       errors,
+      confirmations,
       get view() {
         return view;
       },
@@ -104,6 +107,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       citizen = role("citizen");
     seer.send({ type: "act", targetId: id(fool) });
     await seer.wait(() => !!(seer.view as PlayerView).vision);
+    assert.deepEqual(seer.confirmations, ["act"]);
     assert.equal((seer.view as PlayerView).vision!.role, "fool");
     for (const p of players.filter((p) => p !== seer))
       assert.equal((p.view as PlayerView).vision, null);
@@ -114,6 +118,7 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     );
     citizen.send({ type: "pass" });
     await citizen.wait(() => citizen.errors.length > 0);
+    assert.deepEqual(citizen.confirmations, []);
     assert.equal((citizen.view as PlayerView).action, null);
     sheriff.send({ type: "act", targetId: id(assassin) });
     await sheriff.wait(
@@ -131,6 +136,13 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
       if (r === "detective") p.send({ type: "act", targetId: id(assassin) });
     }
     await admin.wait(() => (admin.view as AdminView).canWake);
+    for (const p of players) {
+      const playerRole = (p.view as PlayerView).player.role;
+      if (playerRole !== "citizen" && playerRole !== "fool") {
+        await p.wait(() => p.confirmations.includes("act"));
+        assert(p.confirmations.includes("act"), `Ação de ${playerRole} deve ser confirmada`);
+      }
+    }
     assert.equal(
       (admin.view as AdminView).nightActions.find((a) => a.role === "bodyguard")
         ?.targetId,
@@ -148,11 +160,14 @@ test("WebSocket: novos papéis, visão privada, reconexão, tiro e vitória do R
     );
     admin.send({ type: "wake" });
     await admin.wait(() => (admin.view as AdminView).status === "day");
-    now += 80_000;
+    now += 90_000;
     const living = players.filter((p) => id(p) !== id(assassin));
-    for (const p of living) p.send({ type: "day-choice", choice: "vote" });
     await admin.wait(() => (admin.view as AdminView).day?.phase === "voting");
     for (const p of living) p.send({ type: "day-vote", targetId: id(fool) });
+    for (const p of living) {
+      await p.wait(() => p.confirmations.includes("day-vote"));
+      assert(p.confirmations.includes("day-vote"));
+    }
     for (const p of [...players, admin]) {
       await p.wait(
         () =>

@@ -15,11 +15,11 @@ import {
   roleDeck,
   SHERIFF_BULLETS,
 } from "../../src/lib/game/roles.js";
-import { MAX_DAY_EXTENSIONS } from "../../src/lib/game/types.js";
 export type Player = {
   id: string;
   token: string;
   name: string;
+  sceneSlot: number;
   role: Role | null;
   alive: boolean;
   connected: boolean;
@@ -90,27 +90,24 @@ export class Game {
     private random: (max: number) => number = randomInt,
   ) {}
   tick() {
-    const changed = this.status === "day" && !!this.day?.tick(this.now());
-    if (changed && this.day?.phase === "voting")
-      this.record(
-        "day",
-        "As duas prorrogações terminaram. A votação começou automaticamente.",
-      );
+    if (this.status !== "day" || !this.day) return false;
+    const wasDiscussing = this.day.phase === "discussion";
+    const changed = this.day.tick(this.now());
+    if (changed && wasDiscussing)
+      this.record("day", "Os 90 segundos de conversa terminaram. A votação começou.");
+    if (changed) this.finishDay();
     return changed;
   }
-  dayChoice(p: Player, choice: unknown) {
-    if (this.status !== "day" || !p.alive || !this.day)
-      throw new Error("Votação indisponível.");
-    this.day.choose(p.id, choice, this.now());
-    if (this.day.phase === "discussion")
-      this.record("day", "A cidade escolheu conversar por mais 30 segundos.");
-    if (this.day.phase === "voting")
-      this.record("day", "A cidade decidiu iniciar a votação.");
+  startVoting() {
+    if (this.status !== "day" || this.day?.phase !== "discussion")
+      throw new Error("A conversa não está em andamento.");
+    this.day.startVoting(this.now());
+    this.record("day", "O Narrador encerrou a conversa. A votação começou.");
   }
   dayVote(p: Player, target: unknown) {
     if (this.status !== "day" || !p.alive || !this.day)
       throw new Error("Votação indisponível.");
-    this.day.vote(p.id, target);
+    this.day.vote(p.id, target, this.now());
     this.finishDay();
   }
   private finishDay() {
@@ -138,15 +135,7 @@ export class Game {
       phase: this.day.phase,
       remaining: this.day.remaining(this.now()),
       duration: this.day.duration,
-      extensionsRemaining: Math.max(
-        0,
-        MAX_DAY_EXTENSIONS - this.day.extensions,
-      ),
-      submitted:
-        !!p &&
-        (this.day.phase === "decision"
-          ? this.day.decisions.has(p.id)
-          : this.day.votes.has(p.id)),
+      submitted: !!p && this.day.votes.has(p.id),
       targets:
         p?.alive && this.day.phase === "voting" && !this.day.votes.has(p.id)
           ? this.day.voters
@@ -191,10 +180,14 @@ export class Game {
       /[\p{Cc}\p{Cf}]/u.test(name)
     )
       throw new Error("Informe um nome de 1 a 32 caracteres.");
+    const occupiedSlots = new Set(this.players.map((other) => other.sceneSlot));
+    let sceneSlot = 0;
+    while (occupiedSlots.has(sceneSlot)) sceneSlot++;
     const player: Player = {
       id: randomUUID(),
       token: randomUUID(),
       name: name.trim(),
+      sceneSlot,
       role: null,
       alive: true,
       connected: true,
@@ -371,7 +364,7 @@ export class Game {
     );
   }
   publicPlayer(p: Player) {
-    return { id: p.id, name: p.name, alive: p.alive, connected: p.connected };
+    return { id: p.id, name: p.name, sceneSlot: p.sceneSlot, alive: p.alive, connected: p.connected };
   }
   adminView(): AdminView {
     return {
@@ -441,6 +434,8 @@ export class Game {
       day: this.status === "day" ? this.dayView(p) : null,
       status: this.status,
       player: { ...this.publicPlayer(p), role: p.role },
+      players: this.players.map((other) => this.publicPlayer(other)),
+      nightReady: this.status === "night" && this.pendingPlayers().length === 0,
       action:
         eligible && !this.chosen(p)
           ? {

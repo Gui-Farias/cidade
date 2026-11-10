@@ -150,18 +150,25 @@ export function attachGameServer(server: Server, rooms = new RoomManager()) {
           }
           room.clients.clear();
           return;
-        } else if (s?.kind === "player" && m.type === "day-choice")
-          game.dayChoice(s.player, m.choice);
-        else if (s?.kind === "player" && m.type === "day-vote")
+        } else if (s?.kind === "player" && m.type === "day-vote") {
           game.dayVote(s.player, m.targetId);
+          send(ws, { type: "action-confirmed", action: "day-vote" });
+        }
+        else if (s?.kind === "admin" && m.type === "start-voting")
+          game.startVoting();
         else if (s?.kind === "admin" && m.type === "resolve-assassins")
           throw new Error(
             "Os votos dos Assassinos são resolvidos automaticamente pelo sorteio.",
           );
         else if (s?.kind === "admin" && m.type === "wake") game.wake();
-        else if (s?.kind === "player" && m.type === "act")
+        else if (s?.kind === "player" && m.type === "act") {
           game.act(s.player, m.targetId);
-        else if (s?.kind === "player" && m.type === "pass") game.pass(s.player);
+          send(ws, { type: "action-confirmed", action: "act" });
+        }
+        else if (s?.kind === "player" && m.type === "pass") {
+          game.pass(s.player);
+          send(ws, { type: "action-confirmed", action: "pass" });
+        }
         else throw new Error("Você não tem permissão para esta ação.");
         broadcast(room);
       } catch (error) {
@@ -194,7 +201,8 @@ export function attachGameServer(server: Server, rooms = new RoomManager()) {
   });
   const dayTimer = setInterval(() => {
     for (const room of rooms.rooms.values()) {
-      if (room.game.status === "day" && room.game.day?.phase === "discussion") {
+      if (room.game.status === "day" &&
+          (room.game.day?.phase === "discussion" || room.game.day?.phase === "voting")) {
         room.game.tick();
         broadcast(room);
       }
